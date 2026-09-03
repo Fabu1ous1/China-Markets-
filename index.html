@@ -278,6 +278,33 @@
     max-width: 320px;
   }
 
+  .speak-btn {
+    margin-top: 24px;
+    padding: 12px 24px;
+    background: var(--button);
+    color: var(--button-text);
+    border: none;
+    border-radius: 100px;
+    font-size: 15px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .speak-btn.speaking { opacity: 0.6; }
+
+  .phrase-card { position: relative; }
+  .phrase-speak {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: none;
+    border: none;
+    font-size: 20px;
+    padding: 4px 8px;
+    cursor: pointer;
+    line-height: 1;
+  }
+
   /* Детальный экран */
   #detail {
     display: none;
@@ -421,6 +448,7 @@
   <div class="showcase-body">
     <div class="showcase-cn" id="showcase-cn"></div>
     <div class="showcase-pinyin" id="showcase-pinyin"></div>
+    <button class="speak-btn" id="speak-btn">🔊 Произнести</button>
     <div class="showcase-ru" id="showcase-ru"></div>
   </div>
 </div>
@@ -549,6 +577,7 @@
     } else {
       listEl.innerHTML = items.map(p => `
         <div class="phrase-card" data-id="${p.id}">
+          <button class="phrase-speak" data-speak-id="${p.id}">🔊</button>
           <p class="phrase-ru">${escapeHtml(p.ru)}</p>
           <p class="phrase-cn-preview">${escapeHtml(p.cn)} · ${escapeHtml(p.pinyin)}</p>
           <span class="card-cat-tag">${escapeHtml(p.category)}</span>
@@ -556,6 +585,13 @@
       `).join('');
       listEl.querySelectorAll('.phrase-card').forEach(card => {
         card.addEventListener('click', () => openShowcase(parseInt(card.dataset.id)));
+      });
+      listEl.querySelectorAll('.phrase-speak').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const p = PHRASES.find(x => x.id === parseInt(btn.dataset.speakId));
+          if (p) speak(p.cn);
+        });
       });
     }
   }
@@ -625,10 +661,48 @@
 
   function closeShowcase() {
     document.getElementById('showcase').classList.remove('open');
+    if (ttsSupported) window.speechSynthesis.cancel();
     if (tg) tg.BackButton.hide();
   }
 
   document.getElementById('showcase-close').addEventListener('click', closeShowcase);
+
+  // ---------- Озвучка через встроенный синтез речи браузера ----------
+
+  const ttsSupported = 'speechSynthesis' in window;
+  let zhVoice = null;
+
+  function pickChineseVoice() {
+    const voices = window.speechSynthesis.getVoices();
+    zhVoice = voices.find(v => v.lang === 'zh-CN')
+      || voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'))
+      || null;
+  }
+
+  if (ttsSupported) {
+    pickChineseVoice();
+    window.speechSynthesis.onvoiceschanged = pickChineseVoice;
+  } else {
+    document.getElementById('speak-btn').style.display = 'none';
+  }
+
+  function speak(text) {
+    if (!ttsSupported) return;
+    window.speechSynthesis.cancel(); // прерываем предыдущую фразу, если ещё звучит
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'zh-CN';
+    if (zhVoice) utter.voice = zhVoice;
+    utter.rate = 0.85; // чуть медленнее — легче разобрать
+    window.speechSynthesis.speak(utter);
+  }
+
+  document.getElementById('speak-btn').addEventListener('click', () => {
+    const btn = document.getElementById('speak-btn');
+    const text = document.getElementById('showcase-cn').textContent;
+    btn.classList.add('speaking');
+    speak(text);
+    setTimeout(() => btn.classList.remove('speaking'), 600);
+  });
 
   const searchInput = document.getElementById('search');
   const clearBtn = document.getElementById('clear-search');
