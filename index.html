@@ -123,6 +123,34 @@
   }
   .cat-scroll::-webkit-scrollbar { display: none; }
 
+  .city-scroll {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 10px 16px 0;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .city-scroll::-webkit-scrollbar { display: none; }
+
+  .city-chip {
+    flex: 0 0 auto;
+    padding: 5px 12px;
+    border: 1.5px solid var(--hint);
+    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    background: none;
+    color: var(--hint);
+  }
+  .city-chip.active {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--bg);
+  }
+
   .chip {
     flex: 0 0 auto;
     padding: 7px 13px;
@@ -397,7 +425,7 @@
 <body>
 
 <header>
-  <div class="eyebrow">128 рынков · Гуанчжоу</div>
+  <div class="eyebrow" id="eyebrow">150 рынков · 5 городов</div>
   <h1>Куда ехать за товаром</h1>
   <div class="tabs">
     <button class="tab-btn active" id="tab-markets">🏬 Рынки</button>
@@ -409,6 +437,7 @@
   </div>
 </header>
 
+<div class="city-scroll" id="city-scroll"></div>
 <div class="cat-scroll" id="cat-scroll"></div>
 
 <main>
@@ -461,6 +490,7 @@
   let PHRASES = [];
   let mode = 'markets';           // 'markets' | 'phrases'
   let activeCategory = 'Все';
+  let activeCity = 'Все';
 
   Promise.all([
     fetch('data/markets.json').then(r => r.json()).catch(() => []),
@@ -468,6 +498,9 @@
   ]).then(([markets, phrases]) => {
     MARKETS = markets;
     PHRASES = phrases;
+    const cityCount = new Set(MARKETS.map(m => m.city)).size;
+    document.getElementById('eyebrow').textContent = `${MARKETS.length} рынков · ${cityCount} городов`;
+    renderCities();
     renderCategories();
     applyFilters();
   });
@@ -479,13 +512,16 @@
   function switchMode(newMode) {
     mode = newMode;
     activeCategory = 'Все';
+    activeCity = 'Все';
     document.getElementById('tab-markets').classList.toggle('active', mode === 'markets');
     document.getElementById('tab-phrases').classList.toggle('active', mode === 'phrases');
+    document.getElementById('city-scroll').style.display = mode === 'markets' ? 'flex' : 'none';
     document.getElementById('search').placeholder = mode === 'markets'
       ? 'Что ищешь? Например: кожаные сумки'
       : 'Например: скидка, доставка, образец';
     document.getElementById('search').value = '';
     document.getElementById('clear-search').style.display = 'none';
+    renderCities();
     renderCategories();
     applyFilters();
   }
@@ -493,8 +529,33 @@
   document.getElementById('tab-markets').addEventListener('click', () => switchMode('markets'));
   document.getElementById('tab-phrases').addEventListener('click', () => switchMode('phrases'));
 
+  function renderCities() {
+    const wrap = document.getElementById('city-scroll');
+    if (mode !== 'markets') {
+      wrap.innerHTML = '';
+      return;
+    }
+    const cities = ['Все', ...new Set(MARKETS.map(m => m.city))];
+    wrap.innerHTML = cities.map(c =>
+      `<button class="city-chip ${c === activeCity ? 'active' : ''}" data-city="${escapeAttr(c)}">${c === 'Все' ? 'Все города' : c}</button>`
+    ).join('');
+    wrap.querySelectorAll('.city-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        activeCity = chip.dataset.city;
+        activeCategory = 'Все'; // категории зависят от города — сбрасываем
+        wrap.querySelectorAll('.city-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        renderCategories();
+        applyFilters();
+      });
+    });
+  }
+
   function renderCategories() {
-    const data = currentDataset();
+    let data = currentDataset();
+    if (mode === 'markets' && activeCity !== 'Все') {
+      data = data.filter(m => m.city === activeCity);
+    }
     const cats = ['Все', ...new Set(data.map(x => x.category))];
     const wrap = document.getElementById('cat-scroll');
     wrap.innerHTML = cats.map(c =>
@@ -512,7 +573,7 @@
 
   function haystackFor(item) {
     if (mode === 'markets') {
-      return `${item.name} ${item.products} ${item.category} ${item.name_cn || ''}`.toLowerCase();
+      return `${item.name} ${item.products} ${item.category} ${item.city || ''} ${item.name_cn || ''}`.toLowerCase();
     }
     return `${item.ru} ${item.cn} ${item.pinyin} ${item.category}`.toLowerCase();
   }
@@ -527,6 +588,10 @@
   function applyFilters() {
     const q = document.getElementById('search').value.trim().toLowerCase();
     let results = currentDataset();
+
+    if (mode === 'markets' && activeCity !== 'Все') {
+      results = results.filter(m => m.city === activeCity);
+    }
 
     if (activeCategory !== 'Все') {
       results = results.filter(x => x.category === activeCategory);
@@ -568,7 +633,7 @@
           <p class="card-name">${escapeHtml(m.name)}</p>
           ${m.name_cn ? `<p class="card-name-cn">${escapeHtml(m.name_cn)}${m.pinyin ? ' · ' + escapeHtml(m.pinyin) : ''}</p>` : ''}
           <p class="card-products">${escapeHtml(m.products || '')}</p>
-          <span class="card-cat-tag">${escapeHtml(m.category)}</span>
+          <span class="card-cat-tag">${escapeHtml(m.category)} · ${escapeHtml(m.city || '')}</span>
         </div>
       `).join('');
       listEl.querySelectorAll('.card').forEach(card => {
@@ -600,7 +665,7 @@
     const m = MARKETS.find(x => x.id === id);
     if (!m) return;
 
-    document.getElementById('detail-cat').textContent = m.category;
+    document.getElementById('detail-cat').textContent = `${m.category} · ${m.city || ''}`;
     document.getElementById('detail-name').textContent = m.name;
     document.getElementById('detail-cn').textContent = m.name_cn
       ? `${m.name_cn}${m.pinyin ? ' · ' + m.pinyin : ''}` : '';
