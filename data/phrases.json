@@ -1,0 +1,58 @@
+[
+  {"id": 1, "category": "Приветствие", "ru": "Здравствуйте", "cn": "你好", "pinyin": "nǐ hǎo"},
+  {"id": 2, "category": "Приветствие", "ru": "Я покупатель из России, ищу поставщика", "cn": "我是俄罗斯的买家，在找供应商", "pinyin": "wǒ shì é luó sī de mǎi jiā, zài zhǎo gōng yìng shāng"},
+  {"id": 3, "category": "Приветствие", "ru": "Можно посмотреть ваш товар?", "cn": "可以看一下你们的产品吗？", "pinyin": "kě yǐ kàn yí xià nǐ men de chǎn pǐn ma?"},
+  {"id": 4, "category": "Приветствие", "ru": "У вас есть каталог?", "cn": "你们有产品目录吗？", "pinyin": "nǐ men yǒu chǎn pǐn mù lù ma?"},
+  {"id": 5, "category": "Приветствие", "ru": "У вас есть WeChat? Обменяемся контактами", "cn": "你有微信吗？我们加一下联系方式", "pinyin": "nǐ yǒu wēi xìn ma? wǒ men jiā yí xià lián xì fāng shì"},
+
+  {"id": 6, "category": "Цена", "ru": "Сколько это стоит?", "cn": "这个多少钱？", "pinyin": "zhè ge duō shǎo qián?"},
+  {"id": 7, "category": "Цена", "ru": "Какая цена за штуку?", "cn": "一件多少钱？", "pinyin": "yí jiàn duō shǎo qián?"},
+  {"id": 8, "category": "Цена", "ru": "Это цена за опт или в розницу?", "cn": "这是批发价还是零售价？", "pinyin": "zhè shì pī fā jià hái shì líng shòu jià?"},
+  {"id": 9, "category": "Цена", "ru": "Какая цена будет при заказе от 100 штук?", "cn": "如果订100件，价格是多少？", "pinyin": "rú guǒ dìng yì bǎi jiàn, jià gé shì duō shǎo?"},
+  {"id": 10, "category": "Цена", "ru": "Напишите цену в блокноте, пожалуйста", "cn": "请把价格写在本子上", "pinyin": "qǐng bǎ jià gé xiě zài běn zi shàng"},
+  {"id": 11, "category": "Цена", "ru": "Цена уже включает доставку до склада?", "cn": "这个价格包括到仓库的运费吗？", "pinyin": "zhè ge jià gé bāo kuò dào cāng kù de yùn fèi ma?"},
+
+  {"id": 12, "category": "Торг", "ru": "Это слишком дорого", "cn": "太贵了", "pinyin": "tài guì le"},
+  {"id": 13, "category": "Торг", "ru": "Можно скидку?", "cn": "可以便宜一点吗？", "pinyin": "kě yǐ pián yi yì diǎn ma?"},
+  {"id": 14, "category": "Торг", "ru": "У другого продавца дешевле", "cn": "别的店铺更便宜", "pinyin": "bié de diàn pù gèng pián yi"},
+  {"id": 15, "category": "Торг", "ru": "Если куплю много, сделаете скидку?", "cn": "如果我买得多，能便宜吗？", "pinyin": "rú guǒ wǒ mǎi de duō, néng pián yi ma?"},
+  {"id": 16, "category": "Торг", "ru": "Давайте сойдёмся на этой цене", "cn": "我们就定这个价格吧", "pinyin": "wǒ men jiù dìng zhè ge jià gé ba"},
+  {"id": 17, "category": "Торг", "ru": "Это моя максимальная цена", "cn": "这是我能接受的最高价格", "pinyin": "zhè shì wǒ néng jiē shòu de zuì gāo jià gé"},
+  {"id": 18, "category": "Торг", "ru": "Хорошо, договорились", "cn": "好的，就这样定了", "pinyin": "hǎo de, jiù zhè yàng dìng le"},
+
+  {"id": 19, "category": "Минимальный заказ (MOQ)", "ru": "Какой минимальный заказ?", "cn": "最小起订量是多少？", "pinyin": "zuì xiǎo qǐ dìng liàng shì duō shǎo?"},
+  {"id": 20, "category": "Минимальный заказ (MOQ)", "ru": "Можно заказать меньше минимума?", "cn": "可以低于起订量吗？", "pinyin": "kě yǐ dī yú qǐ dìng liàng ma?"},
+  {"id": 21, "category": "Минимальный заказ (MOQ)", "ru": "Минимум по каждому цвету/размеру или в сумме?", "cn": "起订量是每个颜色/尺码算，还是总数？", "pinyin": "qǐ dìng liàng shì měi gè yán sè/chǐ mǎ suàn, hái shì zǒng shù?"},
+  {"id": 22, "category": "Минимальный заказ (MOQ)", "ru": "Можно смешать разные модели в одном заказе?", "cn": "可以混合不同款式一起订吗？", "pinyin": "kě yǐ hùn hé bù tóng kuǎn shì yì qǐ dìng ma?"},
+
+  {"id": 23, "category": "Образцы", "ru": "Можно получить образец?", "cn": "可以给个样品吗？", "pinyin": "kě yǐ gěi ge yàng pǐn ma?"},
+  {"id": 24, "category": "Образцы", "ru": "Сколько стоит образец?", "cn": "样品多少钱？", "pinyin": "yàng pǐn duō shǎo qián?"},
+  {"id": 25, "category": "Образцы", "ru": "Образец бесплатный?", "cn": "样品是免费的吗？", "pinyin": "yàng pǐn shì miǎn fèi de ma?"},
+  {"id": 26, "category": "Образцы", "ru": "Сколько дней делается образец?", "cn": "样品需要几天做出来？", "pinyin": "yàng pǐn xū yào jǐ tiān zuò chū lái?"},
+  {"id": 27, "category": "Образцы", "ru": "Можете отправить образец мне в отель?", "cn": "可以把样品寄到我住的酒店吗？", "pinyin": "kě yǐ bǎ yàng pǐn jì dào wǒ zhù de jiǔ diàn ma?"},
+
+  {"id": 28, "category": "Качество и материал", "ru": "Из какого это материала?", "cn": "这是什么材质的？", "pinyin": "zhè shì shén me cái zhì de?"},
+  {"id": 29, "category": "Качество и материал", "ru": "Это натуральная кожа или искусственная?", "cn": "这是真皮还是人造革？", "pinyin": "zhè shì zhēn pí hái shì rén zào gé?"},
+  {"id": 30, "category": "Качество и материал", "ru": "Какой состав ткани?", "cn": "面料成分是什么？", "pinyin": "miàn liào chéng fèn shì shén me?"},
+  {"id": 31, "category": "Качество и материал", "ru": "Есть сертификат качества?", "cn": "有质量检测证书吗？", "pinyin": "yǒu zhì liàng jiǎn cè zhèng shū ma?"},
+  {"id": 32, "category": "Качество и материал", "ru": "Товар проверяется перед отправкой?", "cn": "发货前会检查产品吗？", "pinyin": "fā huò qián huì jiǎn chá chǎn pǐn ma?"},
+
+  {"id": 33, "category": "Оплата", "ru": "Как я могу оплатить?", "cn": "我可以怎么付款？", "pinyin": "wǒ kě yǐ zěn me fù kuǎn?"},
+  {"id": 34, "category": "Оплата", "ru": "Принимаете оплату картой или только наличные?", "cn": "可以刷卡吗，还是只能现金？", "pinyin": "kě yǐ shuā kǎ ma, hái shì zhǐ néng xiàn jīn?"},
+  {"id": 35, "category": "Оплата", "ru": "Нужна предоплата?", "cn": "需要预付定金吗？", "pinyin": "xū yào yù fù dìng jīn ma?"},
+  {"id": 36, "category": "Оплата", "ru": "Сколько процентов предоплаты?", "cn": "定金要付百分之多少？", "pinyin": "dìng jīn yào fù bǎi fēn zhī duō shǎo?"},
+  {"id": 37, "category": "Оплата", "ru": "Остаток оплачу после проверки товара", "cn": "剩下的钱我验货后再付", "pinyin": "shèng xià de qián wǒ yàn huò hòu zài fù"},
+  {"id": 38, "category": "Оплата", "ru": "Можете дать реквизиты для перевода?", "cn": "可以给我转账信息吗？", "pinyin": "kě yǐ gěi wǒ zhuǎn zhàng xìn xī ma?"},
+
+  {"id": 39, "category": "Доставка", "ru": "Как отправите товар?", "cn": "货物怎么发过来？", "pinyin": "huò wù zěn me fā guò lái?"},
+  {"id": 40, "category": "Доставка", "ru": "Сколько будет стоить доставка до России?", "cn": "发到俄罗斯运费多少？", "pinyin": "fā dào é luó sī yùn fèi duō shǎo?"},
+  {"id": 41, "category": "Доставка", "ru": "Сколько дней займёт доставка?", "cn": "大概要多少天能到？", "pinyin": "dà gài yào duō shǎo tiān néng dào?"},
+  {"id": 42, "category": "Доставка", "ru": "Можете доставить на склад в Гуанчжоу?", "cn": "可以送到广州的仓库吗？", "pinyin": "kě yǐ sòng dào guǎng zhōu de cāng kù ma?"},
+  {"id": 43, "category": "Доставка", "ru": "Как упакуете товар для перевозки?", "cn": "货物会怎么打包运输？", "pinyin": "huò wù huì zěn me dǎ bāo yùn shū?"},
+  {"id": 44, "category": "Доставка", "ru": "Дайте, пожалуйста, номер для отслеживания", "cn": "请给我物流单号", "pinyin": "qǐng gěi wǒ wù liú dān hào"},
+
+  {"id": 45, "category": "Прощание", "ru": "Спасибо, я подумаю", "cn": "谢谢，我考虑一下", "pinyin": "xiè xiè, wǒ kǎo lǜ yí xià"},
+  {"id": 46, "category": "Прощание", "ru": "Я вернусь завтра с ответом", "cn": "我明天再来给你答复", "pinyin": "wǒ míng tiān zài lái gěi nǐ dá fù"},
+  {"id": 47, "category": "Прощание", "ru": "Хорошо, я согласен, оформляем заказ", "cn": "好的，我同意，我们下单吧", "pinyin": "hǎo de, wǒ tóng yì, wǒ men xià dān ba"},
+  {"id": 48, "category": "Прощание", "ru": "До свидания, спасибо за помощь", "cn": "再见，谢谢你的帮助", "pinyin": "zài jiàn, xiè xiè nǐ de bāng zhù"}
+]
