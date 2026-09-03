@@ -89,6 +89,30 @@
     padding: 4px 6px;
   }
 
+  /* Переключатель разделов: Рынки / Фразы */
+  .tabs {
+    display: flex;
+    gap: 0;
+    margin-top: 4px;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 10px 0;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 700;
+    background: none;
+    border: none;
+    color: var(--hint);
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .tab-btn.active {
+    color: var(--text);
+    border-bottom-color: var(--stamp-red);
+  }
+
   .cat-scroll {
     display: flex;
     gap: 8px;
@@ -171,6 +195,88 @@
     color: var(--hint);
   }
   .empty-emoji { font-size: 40px; margin-bottom: 10px; }
+
+  /* Карточки фраз */
+  .phrase-card {
+    background: var(--card-bg);
+    border: 1.5px solid var(--line);
+    border-left: 4px solid var(--stamp-red);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin: 10px 0;
+    cursor: pointer;
+  }
+  .phrase-card:active { background: var(--secondary-bg); }
+  .phrase-ru {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+  .phrase-cn-preview {
+    font-size: 14px;
+    color: var(--hint);
+  }
+
+  /* Полноэкранный показ фразы продавцу */
+  #showcase {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    z-index: 200;
+    flex-direction: column;
+  }
+  #showcase.open { display: flex; }
+
+  .showcase-top {
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .showcase-close {
+    background: none;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+    cursor: pointer;
+  }
+
+  .showcase-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+  }
+
+  .showcase-cn {
+    font-size: 15vw;
+    line-height: 1.2;
+    font-weight: 700;
+    color: var(--ink);
+    word-break: break-word;
+  }
+
+  .showcase-pinyin {
+    font-size: 18px;
+    color: var(--hint);
+    margin-top: 20px;
+  }
+
+  .showcase-ru {
+    font-size: 15px;
+    color: var(--hint);
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    width: 100%;
+    max-width: 320px;
+  }
 
   /* Детальный экран */
   #detail {
@@ -266,7 +372,11 @@
 <header>
   <div class="eyebrow">128 рынков · Гуанчжоу</div>
   <h1>Куда ехать за товаром</h1>
-  <div class="search-wrap">
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-markets">🏬 Рынки</button>
+    <button class="tab-btn" id="tab-phrases">💬 Фразы для переговоров</button>
+  </div>
+  <div class="search-wrap" style="margin-top:12px;">
     <input id="search" type="text" placeholder="Что ищешь? Например: кожаные сумки" autocomplete="off">
     <button id="clear-search">✕</button>
   </div>
@@ -303,27 +413,61 @@
   </div>
 </div>
 
+<!-- Полноэкранный показ фразы — чтобы продавец прочитал сам с телефона -->
+<div id="showcase">
+  <div class="showcase-top">
+    <button class="showcase-close" id="showcase-close">✕</button>
+  </div>
+  <div class="showcase-body">
+    <div class="showcase-cn" id="showcase-cn"></div>
+    <div class="showcase-pinyin" id="showcase-pinyin"></div>
+    <div class="showcase-ru" id="showcase-ru"></div>
+  </div>
+</div>
+
 <script>
   const tg = window.Telegram?.WebApp;
   if (tg) { tg.ready(); tg.expand(); }
 
   let MARKETS = [];
+  let PHRASES = [];
+  let mode = 'markets';           // 'markets' | 'phrases'
   let activeCategory = 'Все';
 
-  fetch('data/markets.json')
-    .then(r => r.json())
-    .then(data => {
-      MARKETS = data;
-      renderCategories();
-      renderList(MARKETS);
-    })
-    .catch(() => {
-      document.getElementById('list').innerHTML =
-        '<div class="empty"><div class="empty-emoji">⚠️</div>Не удалось загрузить базу рынков</div>';
-    });
+  Promise.all([
+    fetch('data/markets.json').then(r => r.json()).catch(() => []),
+    fetch('data/phrases.json').then(r => r.json()).catch(() => [])
+  ]).then(([markets, phrases]) => {
+    MARKETS = markets;
+    PHRASES = phrases;
+    renderCategories();
+    applyFilters();
+  });
+
+  function currentDataset() {
+    return mode === 'markets' ? MARKETS : PHRASES;
+  }
+
+  function switchMode(newMode) {
+    mode = newMode;
+    activeCategory = 'Все';
+    document.getElementById('tab-markets').classList.toggle('active', mode === 'markets');
+    document.getElementById('tab-phrases').classList.toggle('active', mode === 'phrases');
+    document.getElementById('search').placeholder = mode === 'markets'
+      ? 'Что ищешь? Например: кожаные сумки'
+      : 'Например: скидка, доставка, образец';
+    document.getElementById('search').value = '';
+    document.getElementById('clear-search').style.display = 'none';
+    renderCategories();
+    applyFilters();
+  }
+
+  document.getElementById('tab-markets').addEventListener('click', () => switchMode('markets'));
+  document.getElementById('tab-phrases').addEventListener('click', () => switchMode('phrases'));
 
   function renderCategories() {
-    const cats = ['Все', ...new Set(MARKETS.map(m => m.category))];
+    const data = currentDataset();
+    const cats = ['Все', ...new Set(data.map(x => x.category))];
     const wrap = document.getElementById('cat-scroll');
     wrap.innerHTML = cats.map(c =>
       `<button class="chip ${c === activeCategory ? 'active' : ''}" data-cat="${escapeAttr(c)}">${c}</button>`
@@ -338,25 +482,39 @@
     });
   }
 
+  function haystackFor(item) {
+    if (mode === 'markets') {
+      return `${item.name} ${item.products} ${item.category} ${item.name_cn || ''}`.toLowerCase();
+    }
+    return `${item.ru} ${item.cn} ${item.pinyin} ${item.category}`.toLowerCase();
+  }
+
+  function stem(word) {
+    // грубый стемминг: отбрасываем окончание, чтобы "скидка"/"скидку" совпадали
+    if (word.length > 5) return word.slice(0, -2);
+    if (word.length > 3) return word.slice(0, -1);
+    return word;
+  }
+
   function applyFilters() {
     const q = document.getElementById('search').value.trim().toLowerCase();
-    let results = MARKETS;
+    let results = currentDataset();
 
     if (activeCategory !== 'Все') {
-      results = results.filter(m => m.category === activeCategory);
+      results = results.filter(x => x.category === activeCategory);
     }
 
     if (q) {
-      const words = q.split(/\s+/).filter(w => w.length > 1);
+      const words = q.split(/\s+/).filter(w => w.length > 1).map(stem);
       results = results
-        .map(m => {
-          const hay = `${m.name} ${m.products} ${m.category} ${m.name_cn || ''}`.toLowerCase();
+        .map(item => {
+          const hay = haystackFor(item);
           const score = words.reduce((s, w) => s + (hay.includes(w) ? 1 : 0), 0);
-          return { m, score };
+          return { item, score };
         })
         .filter(x => x.score > 0)
         .sort((a, b) => b.score - a.score)
-        .map(x => x.m);
+        .map(x => x.item);
     }
 
     renderList(results);
@@ -369,22 +527,37 @@
     countEl.textContent = items.length ? `Найдено: ${items.length}` : '';
 
     if (!items.length) {
-      listEl.innerHTML = '<div class="empty"><div class="empty-emoji">🤷</div>Ничего не нашлось.<br>Попробуй другое слово или категорию.</div>';
+      const emptyText = mode === 'markets'
+        ? 'Ничего не нашлось.<br>Попробуй другое слово или категорию.'
+        : 'Такой фразы пока нет.<br>Попробуй другое слово.';
+      listEl.innerHTML = `<div class="empty"><div class="empty-emoji">🤷</div>${emptyText}</div>`;
       return;
     }
 
-    listEl.innerHTML = items.map(m => `
-      <div class="card" data-id="${m.id}">
-        <p class="card-name">${escapeHtml(m.name)}</p>
-        ${m.name_cn ? `<p class="card-name-cn">${escapeHtml(m.name_cn)}${m.pinyin ? ' · ' + escapeHtml(m.pinyin) : ''}</p>` : ''}
-        <p class="card-products">${escapeHtml(m.products || '')}</p>
-        <span class="card-cat-tag">${escapeHtml(m.category)}</span>
-      </div>
-    `).join('');
-
-    listEl.querySelectorAll('.card').forEach(card => {
-      card.addEventListener('click', () => openDetail(parseInt(card.dataset.id)));
-    });
+    if (mode === 'markets') {
+      listEl.innerHTML = items.map(m => `
+        <div class="card" data-id="${m.id}">
+          <p class="card-name">${escapeHtml(m.name)}</p>
+          ${m.name_cn ? `<p class="card-name-cn">${escapeHtml(m.name_cn)}${m.pinyin ? ' · ' + escapeHtml(m.pinyin) : ''}</p>` : ''}
+          <p class="card-products">${escapeHtml(m.products || '')}</p>
+          <span class="card-cat-tag">${escapeHtml(m.category)}</span>
+        </div>
+      `).join('');
+      listEl.querySelectorAll('.card').forEach(card => {
+        card.addEventListener('click', () => openDetail(parseInt(card.dataset.id)));
+      });
+    } else {
+      listEl.innerHTML = items.map(p => `
+        <div class="phrase-card" data-id="${p.id}">
+          <p class="phrase-ru">${escapeHtml(p.ru)}</p>
+          <p class="phrase-cn-preview">${escapeHtml(p.cn)} · ${escapeHtml(p.pinyin)}</p>
+          <span class="card-cat-tag">${escapeHtml(p.category)}</span>
+        </div>
+      `).join('');
+      listEl.querySelectorAll('.phrase-card').forEach(card => {
+        card.addEventListener('click', () => openShowcase(parseInt(card.dataset.id)));
+      });
+    }
   }
 
   function openDetail(id) {
@@ -431,6 +604,31 @@
   }
 
   document.getElementById('back-btn').addEventListener('click', closeDetail);
+
+  // ---------- Полноэкранный показ фразы продавцу ----------
+
+  function openShowcase(id) {
+    const p = PHRASES.find(x => x.id === id);
+    if (!p) return;
+
+    document.getElementById('showcase-cn').textContent = p.cn;
+    document.getElementById('showcase-pinyin').textContent = p.pinyin;
+    document.getElementById('showcase-ru').textContent = p.ru;
+
+    document.getElementById('showcase').classList.add('open');
+    if (tg) {
+      tg.BackButton.show();
+      tg.BackButton.onClick(closeShowcase);
+      tg.HapticFeedback?.impactOccurred('light');
+    }
+  }
+
+  function closeShowcase() {
+    document.getElementById('showcase').classList.remove('open');
+    if (tg) tg.BackButton.hide();
+  }
+
+  document.getElementById('showcase-close').addEventListener('click', closeShowcase);
 
   const searchInput = document.getElementById('search');
   const clearBtn = document.getElementById('clear-search');
