@@ -1,12 +1,11 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Рынки Гуанчжоу</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Закуп в Китае</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
     --bg: var(--tg-theme-bg-color, #15141b);
@@ -51,13 +50,42 @@
     z-index: 10;
   }
 
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
   .eyebrow {
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--gold);
-    margin-bottom: 6px;
+  }
+
+  .lang-selector {
+    display: flex;
+    gap: 4px;
+  }
+
+  .lang-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--secondary-bg);
+    border: 1px solid var(--line);
+    color: var(--hint);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all .15s ease;
+  }
+  .lang-btn.active {
+    background: var(--button);
+    color: var(--button-text);
+    border-color: var(--button);
   }
 
   h1 {
@@ -259,7 +287,6 @@
   }
   .empty-emoji { font-size: 38px; margin-bottom: 12px; opacity: 0.7; }
 
-  /* Карточки фраз */
   .phrase-card {
     position: relative;
     background: var(--card-bg);
@@ -308,7 +335,6 @@
   }
   .phrase-speak:active { background: var(--gold-dim); }
 
-  /* Детальный экран */
   #detail {
     display: none;
     position: fixed;
@@ -405,7 +431,6 @@
   }
   .copy-btn.copied { background: var(--success); color: #fff; }
 
-  /* Полноэкранный показ фразы — намеренно светлый экран для читаемости на солнце */
   #showcase {
     display: none;
     position: fixed;
@@ -469,7 +494,7 @@
     font-weight: 700;
     font-family: inherit;
     cursor: pointer;
-    transition: background .15s ease, color .15s ease;
+    transition: background .15s ease;
   }
   .speak-btn.speaking { background: var(--gold); color: #17151d; }
 
@@ -487,13 +512,20 @@
 <body>
 
 <header>
-  <div class="eyebrow" id="eyebrow">150 рынков · 5 городов</div>
-  <h1>Куда ехать за товаром</h1>
+  <div class="header-top">
+    <div class="eyebrow" id="eyebrow">150 рынков · 5 городов</div>
+    <div class="lang-selector">
+      <button class="lang-btn active" id="lang-ru" data-lang="ru">РУ</button>
+      <button class="lang-btn" id="lang-en" data-lang="en">EN</button>
+      <button class="lang-btn" id="lang-zh" data-lang="zh">中文</button>
+    </div>
+  </div>
+  <h1 id="title">Закуп в Китае</h1>
   <div class="tabs">
     <button class="tab-btn active" id="tab-markets">🏬 Рынки</button>
-    <button class="tab-btn" id="tab-phrases">💬 Фразы для переговоров</button>
+    <button class="tab-btn" id="tab-phrases">💬 Фразы</button>
   </div>
-  <div class="search-wrap" style="margin-top:12px;">
+  <div class="search-wrap">
     <input id="search" type="text" placeholder="Что ищешь? Например: кожаные сумки" autocomplete="off">
     <button id="clear-search">✕</button>
   </div>
@@ -515,23 +547,19 @@
   <div class="detail-body">
     <h2 class="detail-name" id="detail-name"></h2>
     <div class="detail-cn" id="detail-cn"></div>
-
     <div class="field">
-      <div class="field-label">ТОВАРЫ</div>
+      <div class="field-label" id="label-products">Товары</div>
       <div class="field-value" id="detail-products"></div>
     </div>
-
     <div class="field" id="detail-address-wrap">
-      <div class="field-label">АДРЕС</div>
+      <div class="field-label" id="label-address">Адрес</div>
       <div class="field-value" id="detail-address"></div>
       <div class="field-value mono" id="detail-address-translit"></div>
     </div>
-
-    <button class="copy-btn" id="copy-btn">📋 Скопировать адрес</button>
+    <button class="copy-btn" id="copy-btn">Скопировать адрес</button>
   </div>
 </div>
 
-<!-- Полноэкранный показ фразы — чтобы продавец прочитал сам с телефона -->
 <div id="showcase">
   <div class="showcase-top">
     <button class="showcase-close" id="showcase-close">✕</button>
@@ -546,25 +574,104 @@
 
 <script>
   const tg = window.Telegram?.WebApp;
-  if (tg) { tg.ready(); tg.expand(); }
+  if (tg) tg.expand();
 
   let MARKETS = [];
   let PHRASES = [];
-  let mode = 'markets';           // 'markets' | 'phrases'
+  let TRANSLATIONS = {};
+  let mode = 'markets';
+  let lang = localStorage.getItem('lang') || 'ru';
   let activeCategory = 'Все';
   let activeCity = 'Все';
 
+  const ttsSupported = 'speechSynthesis' in window;
+  let zhVoice = null;
+
+  function pickChineseVoice() {
+    const voices = window.speechSynthesis.getVoices();
+    zhVoice = voices.find(v => v.lang === 'zh-CN')
+      || voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'))
+      || null;
+  }
+
+  if (ttsSupported) {
+    pickChineseVoice();
+    window.speechSynthesis.onvoiceschanged = pickChineseVoice;
+  }
+
+  function speak(text) {
+    if (!ttsSupported) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'zh-CN';
+    if (zhVoice) utter.voice = zhVoice;
+    utter.rate = 0.85;
+    window.speechSynthesis.speak(utter);
+  }
+
+  function t(key) {
+    return TRANSLATIONS[lang]?.[key] || TRANSLATIONS['ru']?.[key] || key;
+  }
+
+  function getMarketField(market, field) {
+    const fieldMap = {
+      'name': { 'ru': 'name', 'en': 'name_en', 'zh': 'name_zh' },
+      'products': { 'ru': 'products', 'en': 'products_en', 'zh': 'products_zh' },
+      'category': { 'ru': 'category', 'en': 'category_en', 'zh': 'category_zh' }
+    };
+    const fieldName = fieldMap[field]?.[lang];
+    return market[fieldName] || market[fieldMap[field]['ru']];
+  }
+
+  function getPhraseField(phrase, field) {
+    return phrase[field];
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function escapeAttr(text) {
+    return text.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   Promise.all([
     fetch('data/markets.json').then(r => r.json()).catch(() => []),
-    fetch('data/phrases.json').then(r => r.json()).catch(() => [])
-  ]).then(([markets, phrases]) => {
+    fetch('data/phrases.json').then(r => r.json()).catch(() => []),
+    fetch('data/translations.json').then(r => r.json()).catch(() => {})
+  ]).then(([markets, phrases, translations]) => {
     MARKETS = markets;
     PHRASES = phrases;
-    const cityCount = new Set(MARKETS.map(m => m.city)).size;
-    document.getElementById('eyebrow').textContent = `${MARKETS.length} рынков · ${cityCount} городов`;
+    TRANSLATIONS = translations;
+    updateLanguage();
+  });
+
+  function updateLanguage() {
+    document.documentElement.lang = lang;
+    document.getElementById('title').textContent = t('title');
+    document.getElementById('tab-markets').textContent = t('tab_markets');
+    document.getElementById('tab-phrases').textContent = t('tab_phrases');
+    document.getElementById('search').placeholder = mode === 'markets' ? t('search_placeholder_markets') : t('search_placeholder_phrases');
+    document.getElementById('label-products').textContent = t('detail_products');
+    document.getElementById('label-address').textContent = t('detail_address');
+    document.getElementById('copy-btn').textContent = t('copy_address');
+    
+    document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('lang-' + lang).classList.add('active');
+    
     renderCities();
     renderCategories();
     applyFilters();
+  }
+
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      lang = btn.dataset.lang;
+      localStorage.setItem('lang', lang);
+      updateLanguage();
+    });
   });
 
   function currentDataset() {
@@ -578,9 +685,7 @@
     document.getElementById('tab-markets').classList.toggle('active', mode === 'markets');
     document.getElementById('tab-phrases').classList.toggle('active', mode === 'phrases');
     document.getElementById('city-scroll').style.display = mode === 'markets' ? 'flex' : 'none';
-    document.getElementById('search').placeholder = mode === 'markets'
-      ? 'Что ищешь? Например: кожаные сумки'
-      : 'Например: скидка, доставка, образец';
+    document.getElementById('search').placeholder = mode === 'markets' ? t('search_placeholder_markets') : t('search_placeholder_phrases');
     document.getElementById('search').value = '';
     document.getElementById('clear-search').style.display = 'none';
     renderCities();
@@ -599,12 +704,12 @@
     }
     const cities = ['Все', ...new Set(MARKETS.map(m => m.city))];
     wrap.innerHTML = cities.map(c =>
-      `<button class="city-chip ${c === activeCity ? 'active' : ''}" data-city="${escapeAttr(c)}">${c === 'Все' ? 'Все города' : c}</button>`
+      `<button class="city-chip ${c === activeCity ? 'active' : ''}" data-city="${escapeAttr(c)}">${c === 'Все' ? t('city_all') : c}</button>`
     ).join('');
     wrap.querySelectorAll('.city-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         activeCity = chip.dataset.city;
-        activeCategory = 'Все'; // категории зависят от города — сбрасываем
+        activeCategory = 'Все';
         wrap.querySelectorAll('.city-chip').forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
         renderCategories();
@@ -618,10 +723,10 @@
     if (mode === 'markets' && activeCity !== 'Все') {
       data = data.filter(m => m.city === activeCity);
     }
-    const cats = ['Все', ...new Set(data.map(x => x.category))];
+    const cats = ['Все', ...new Set(data.map(x => getMarketField(x, 'category')))];
     const wrap = document.getElementById('cat-scroll');
     wrap.innerHTML = cats.map(c =>
-      `<button class="chip ${c === activeCategory ? 'active' : ''}" data-cat="${escapeAttr(c)}">${c}</button>`
+      `<button class="chip ${c === activeCategory ? 'active' : ''}" data-cat="${escapeAttr(c)}">${c === 'Все' ? t('category_all') : c}</button>`
     ).join('');
     wrap.querySelectorAll('.chip').forEach(chip => {
       chip.addEventListener('click', () => {
@@ -635,13 +740,12 @@
 
   function haystackFor(item) {
     if (mode === 'markets') {
-      return `${item.name} ${item.products} ${item.category} ${item.city || ''} ${item.name_cn || ''}`.toLowerCase();
+      return `${getMarketField(item, 'name')} ${getMarketField(item, 'products')} ${getMarketField(item, 'category')} ${item.city || ''} ${item.name_cn || ''}`.toLowerCase();
     }
     return `${item.ru} ${item.cn} ${item.pinyin} ${item.category}`.toLowerCase();
   }
 
   function stem(word) {
-    // грубый стемминг: отбрасываем окончание, чтобы "скидка"/"скидку" совпадали
     if (word.length > 5) return word.slice(0, -2);
     if (word.length > 3) return word.slice(0, -1);
     return word;
@@ -656,7 +760,7 @@
     }
 
     if (activeCategory !== 'Все') {
-      results = results.filter(x => x.category === activeCategory);
+      results = results.filter(x => getMarketField(x, 'category') === activeCategory);
     }
 
     if (q) {
@@ -676,40 +780,38 @@
   }
 
   function renderList(items) {
-    const countEl = document.getElementById('result-count');
     const listEl = document.getElementById('list');
-
-    countEl.textContent = items.length ? `Найдено: ${items.length}` : '';
-
-    if (!items.length) {
-      const emptyText = mode === 'markets'
-        ? 'Ничего не нашлось.<br>Попробуй другое слово или категорию.'
-        : 'Такой фразы пока нет.<br>Попробуй другое слово.';
-      listEl.innerHTML = `<div class="empty"><div class="empty-emoji">🤷</div>${emptyText}</div>`;
+    const countEl = document.getElementById('result-count');
+    
+    if (items.length === 0) {
+      listEl.innerHTML = `<div class="empty"><div class="empty-emoji">🔍</div>${t('no_results')}</div>`;
+      countEl.textContent = '';
       return;
     }
 
+    countEl.textContent = items.length + ' ' + (mode === 'markets' ? 'рынков' : 'фраз');
+
     if (mode === 'markets') {
-      listEl.innerHTML = items.map(m => `
-        <div class="card" data-id="${m.id}">
-          <p class="card-name">${escapeHtml(m.name)}</p>
-          ${m.name_cn ? `<p class="card-name-cn">${escapeHtml(m.name_cn)}${m.pinyin ? ' · ' + escapeHtml(m.pinyin) : ''}</p>` : ''}
-          <p class="card-products">${escapeHtml(m.products || '')}</p>
-          <span class="card-cat-tag">${escapeHtml(m.category)} · ${escapeHtml(m.city || '')}</span>
-        </div>
-      `).join('');
+      listEl.innerHTML = items.map(m =>
+        `<div class="card" data-id="${m.id}">
+          <p class="card-name">${escapeHtml(getMarketField(m, 'name'))}</p>
+          <p class="card-name-cn">${escapeHtml(m.name_cn || '')}</p>
+          <p class="card-products">${escapeHtml(getMarketField(m, 'products'))}</p>
+          <span class="card-cat-tag">${escapeHtml(getMarketField(m, 'category'))} · ${escapeHtml(m.city || '')}</span>
+        </div>`
+      ).join('');
       listEl.querySelectorAll('.card').forEach(card => {
         card.addEventListener('click', () => openDetail(parseInt(card.dataset.id)));
       });
     } else {
-      listEl.innerHTML = items.map(p => `
-        <div class="phrase-card" data-id="${p.id}">
+      listEl.innerHTML = items.map(p =>
+        `<div class="phrase-card" data-id="${p.id}">
           <button class="phrase-speak" data-speak-id="${p.id}">🔊</button>
-          <p class="phrase-ru">${escapeHtml(p.ru)}</p>
+          <p class="phrase-ru">${escapeHtml(p[lang] || p.ru)}</p>
           <p class="phrase-cn-preview">${escapeHtml(p.cn)} · ${escapeHtml(p.pinyin)}</p>
           <span class="card-cat-tag">${escapeHtml(p.category)}</span>
-        </div>
-      `).join('');
+        </div>`
+      ).join('');
       listEl.querySelectorAll('.phrase-card').forEach(card => {
         card.addEventListener('click', () => openShowcase(parseInt(card.dataset.id)));
       });
@@ -726,39 +828,14 @@
   function openDetail(id) {
     const m = MARKETS.find(x => x.id === id);
     if (!m) return;
-
-    document.getElementById('detail-cat').textContent = `${m.category} · ${m.city || ''}`;
-    document.getElementById('detail-name').textContent = m.name;
-    document.getElementById('detail-cn').textContent = m.name_cn
-      ? `${m.name_cn}${m.pinyin ? ' · ' + m.pinyin : ''}` : '';
-    document.getElementById('detail-products').textContent = m.products || '—';
-
-    const addrWrap = document.getElementById('detail-address-wrap');
-    if (m.address) {
-      addrWrap.style.display = '';
-      document.getElementById('detail-address').textContent = m.address;
-      document.getElementById('detail-address-translit').textContent = m.address_translit || '';
-    } else {
-      addrWrap.style.display = 'none';
-    }
-
-    const copyBtn = document.getElementById('copy-btn');
-    copyBtn.textContent = '📋 Скопировать адрес';
-    copyBtn.classList.remove('copied');
-    copyBtn.onclick = () => {
-      const text = `${m.name} (${m.name_cn || ''})\n${m.address || ''}`;
-      navigator.clipboard.writeText(text).then(() => {
-        copyBtn.textContent = '✓ Скопировано';
-        copyBtn.classList.add('copied');
-        if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-      });
-    };
-
+    document.getElementById('detail-name').textContent = getMarketField(m, 'name');
+    document.getElementById('detail-cn').textContent = m.name_cn || '';
+    document.getElementById('detail-cat').textContent = `${getMarketField(m, 'category')} · ${m.city || ''}`;
+    document.getElementById('detail-products').textContent = getMarketField(m, 'products');
+    document.getElementById('detail-address').textContent = m.address || '';
+    document.getElementById('detail-address-translit').textContent = m.address_translit || m.address_cn || '';
     document.getElementById('detail').classList.add('open');
-    if (tg) {
-      tg.BackButton.show();
-      tg.BackButton.onClick(closeDetail);
-    }
+    if (tg) tg.BackButton.show();
   }
 
   function closeDetail() {
@@ -767,23 +844,31 @@
   }
 
   document.getElementById('back-btn').addEventListener('click', closeDetail);
+  document.getElementById('detail').addEventListener('click', (e) => {
+    if (e.target.id === 'detail') closeDetail();
+  });
 
-  // ---------- Полноэкранный показ фразы продавцу ----------
+  document.getElementById('copy-btn').addEventListener('click', () => {
+    const addr = document.getElementById('detail-address').textContent;
+    navigator.clipboard.writeText(addr).then(() => {
+      const btn = document.getElementById('copy-btn');
+      btn.classList.add('copied');
+      btn.textContent = t('copied');
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.textContent = t('copy_address');
+      }, 2000);
+    });
+  });
 
   function openShowcase(id) {
     const p = PHRASES.find(x => x.id === id);
     if (!p) return;
-
     document.getElementById('showcase-cn').textContent = p.cn;
     document.getElementById('showcase-pinyin').textContent = p.pinyin;
-    document.getElementById('showcase-ru').textContent = p.ru;
-
+    document.getElementById('showcase-ru').textContent = p[lang] || p.ru;
     document.getElementById('showcase').classList.add('open');
-    if (tg) {
-      tg.BackButton.show();
-      tg.BackButton.onClick(closeShowcase);
-      tg.HapticFeedback?.impactOccurred('light');
-    }
+    if (tg) tg.BackButton.show();
   }
 
   function closeShowcase() {
@@ -793,35 +878,9 @@
   }
 
   document.getElementById('showcase-close').addEventListener('click', closeShowcase);
-
-  // ---------- Озвучка через встроенный синтез речи браузера ----------
-
-  const ttsSupported = 'speechSynthesis' in window;
-  let zhVoice = null;
-
-  function pickChineseVoice() {
-    const voices = window.speechSynthesis.getVoices();
-    zhVoice = voices.find(v => v.lang === 'zh-CN')
-      || voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'))
-      || null;
-  }
-
-  if (ttsSupported) {
-    pickChineseVoice();
-    window.speechSynthesis.onvoiceschanged = pickChineseVoice;
-  } else {
-    document.getElementById('speak-btn').style.display = 'none';
-  }
-
-  function speak(text) {
-    if (!ttsSupported) return;
-    window.speechSynthesis.cancel(); // прерываем предыдущую фразу, если ещё звучит
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'zh-CN';
-    if (zhVoice) utter.voice = zhVoice;
-    utter.rate = 0.85; // чуть медленнее — легче разобрать
-    window.speechSynthesis.speak(utter);
-  }
+  document.getElementById('showcase').addEventListener('click', (e) => {
+    if (e.target.id === 'showcase') closeShowcase();
+  });
 
   document.getElementById('speak-btn').addEventListener('click', () => {
     const btn = document.getElementById('speak-btn');
@@ -832,21 +891,22 @@
   });
 
   const searchInput = document.getElementById('search');
-  const clearBtn = document.getElementById('clear-search');
   searchInput.addEventListener('input', () => {
-    clearBtn.style.display = searchInput.value ? 'block' : 'none';
-    applyFilters();
-  });
-  clearBtn.addEventListener('click', () => {
-    searchInput.value = '';
-    clearBtn.style.display = 'none';
+    document.getElementById('clear-search').style.display = searchInput.value ? 'block' : 'none';
     applyFilters();
   });
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  document.getElementById('clear-search').addEventListener('click', () => {
+    searchInput.value = '';
+    searchInput.focus();
+    document.getElementById('clear-search').style.display = 'none';
+    applyFilters();
+  });
+
+  if (tg) {
+    tg.BackButton.onClick(closeDetail);
   }
-  function escapeAttr(s) { return escapeHtml(s); }
 </script>
+
 </body>
 </html>
