@@ -703,9 +703,10 @@
       return;
     }
     const cities = ['Все', ...new Set(MARKETS.map(m => m.city))];
-    wrap.innerHTML = cities.map(c =>
-      `<button class="city-chip ${c === activeCity ? 'active' : ''}" data-city="${escapeAttr(c)}">${c === 'Все' ? t('city_all') : c}</button>`
-    ).join('');
+    wrap.innerHTML = cities.map(c => {
+      const displayName = c === 'Все' ? t('city_all') : t(c) || c;
+      return `<button class="city-chip ${c === activeCity ? 'active' : ''}" data-city="${escapeAttr(c)}">${displayName}</button>`;
+    }).join('');
     wrap.querySelectorAll('.city-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         activeCity = chip.dataset.city;
@@ -725,9 +726,10 @@
     }
     const cats = ['Все', ...new Set(data.map(x => getMarketField(x, 'category')))];
     const wrap = document.getElementById('cat-scroll');
-    wrap.innerHTML = cats.map(c =>
-      `<button class="chip ${c === activeCategory ? 'active' : ''}" data-cat="${escapeAttr(c)}">${c === 'Все' ? t('category_all') : c}</button>`
-    ).join('');
+    wrap.innerHTML = cats.map(c => {
+      const displayName = c === 'Все' ? t('category_all') : t(c) || c;
+      return `<button class="chip ${c === activeCategory ? 'active' : ''}" data-cat="${escapeAttr(c)}">${displayName}</button>`;
+    }).join('');
     wrap.querySelectorAll('.chip').forEach(chip => {
       chip.addEventListener('click', () => {
         activeCategory = chip.dataset.cat;
@@ -792,26 +794,29 @@
     countEl.textContent = items.length + ' ' + (mode === 'markets' ? 'рынков' : 'фраз');
 
     if (mode === 'markets') {
-      listEl.innerHTML = items.map(m =>
-        `<div class="card" data-id="${m.id}">
+      listEl.innerHTML = items.map(m => {
+        const catName = t(getMarketField(m, 'category')) || getMarketField(m, 'category');
+        const cityName = t(m.city) || m.city;
+        return `<div class="card" data-id="${m.id}">
           <p class="card-name">${escapeHtml(getMarketField(m, 'name'))}</p>
           <p class="card-name-cn">${escapeHtml(m.name_cn || '')}</p>
           <p class="card-products">${escapeHtml(getMarketField(m, 'products'))}</p>
-          <span class="card-cat-tag">${escapeHtml(getMarketField(m, 'category'))} · ${escapeHtml(m.city || '')}</span>
-        </div>`
-      ).join('');
+          <span class="card-cat-tag">${escapeHtml(catName)} · ${escapeHtml(cityName)}</span>
+        </div>`;
+      }).join('');
       listEl.querySelectorAll('.card').forEach(card => {
         card.addEventListener('click', () => openDetail(parseInt(card.dataset.id)));
       });
     } else {
-      listEl.innerHTML = items.map(p =>
-        `<div class="phrase-card" data-id="${p.id}">
+      listEl.innerHTML = items.map(p => {
+        const catName = t(p.category) || p.category;
+        return `<div class="phrase-card" data-id="${p.id}">
           <button class="phrase-speak" data-speak-id="${p.id}">🔊</button>
           <p class="phrase-ru">${escapeHtml(p[lang] || p.ru)}</p>
           <p class="phrase-cn-preview">${escapeHtml(p.cn)} · ${escapeHtml(p.pinyin)}</p>
-          <span class="card-cat-tag">${escapeHtml(p.category)}</span>
-        </div>`
-      ).join('');
+          <span class="card-cat-tag">${escapeHtml(catName)}</span>
+        </div>`;
+      }).join('');
       listEl.querySelectorAll('.phrase-card').forEach(card => {
         card.addEventListener('click', () => openShowcase(parseInt(card.dataset.id)));
       });
@@ -828,9 +833,11 @@
   function openDetail(id) {
     const m = MARKETS.find(x => x.id === id);
     if (!m) return;
+    const catName = t(getMarketField(m, 'category')) || getMarketField(m, 'category');
+    const cityName = t(m.city) || m.city;
     document.getElementById('detail-name').textContent = getMarketField(m, 'name');
     document.getElementById('detail-cn').textContent = m.name_cn || '';
-    document.getElementById('detail-cat').textContent = `${getMarketField(m, 'category')} · ${m.city || ''}`;
+    document.getElementById('detail-cat').textContent = `${catName} · ${cityName}`;
     document.getElementById('detail-products').textContent = getMarketField(m, 'products');
     document.getElementById('detail-address').textContent = m.address || '';
     document.getElementById('detail-address-translit').textContent = m.address_translit || m.address_cn || '';
