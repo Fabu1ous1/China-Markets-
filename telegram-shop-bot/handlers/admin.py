@@ -10,13 +10,15 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import db
-from config import ADMIN_IDS, CURRENCY
+from config import ADMIN_IDS, CURRENCY, HIDE_PRICES
 from keyboards import (
     BTN_ADMIN, MENU_TEXTS, Adm, OrdSt,
     admin_flavors_kb, admin_menu_kb, admin_product_kb, main_menu, order_status_kb,
-    product_link_kb, review_products_kb,
+    product_link_kb, quote_kb, review_products_kb,
 )
-from utils import STATUS, STATUS_CLIENT_MSG, esc, local_time, money, order_text, product_text, send_product, stars
+from utils import (
+    STATUS, STATUS_CLIENT_MSG, esc, local_time, money, order_text, order_total, product_text, send_product, stars,
+)
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +52,10 @@ class EditProduct(StatesGroup):
 
 class AddCategory(StatesGroup):
     name = State()
+
+
+class SetPrice(StatesGroup):
+    total = State()
 
 
 class AddPromo(StatesGroup):
@@ -132,7 +138,8 @@ async def show_admin_product(bot: Bot, chat_id: int, pid: int):
         await bot.send_message(chat_id, "Товар не найден.")
         return
     flavors = await db.flavors(pid)
-    text = product_text(p, flavors, tiers=await db.tiers(pid), rating=await db.rating(pid), admin=True)
+    text = product_text(p, flavors, tiers=await db.tiers(pid), rating=await db.rating(pid), admin=True,
+                        hidden=HIDE_PRICES)
     await send_product(bot, chat_id, await db.media(pid), text, admin_product_kb(p))
 
 
@@ -240,16 +247,21 @@ async def add_description(message: Message, state: FSMContext):
     desc = "" if message.text.strip() == "-" else message.text.strip()[:3000]
     await state.update_data(description=desc)
     await state.set_state(AddProduct.price)
-    await message.answer("<b>3/6.</b> Цена за 1 шт. (только число, например <code>15</code> или <code>12.5</code>):")
+    await message.answer("<b>3/6.</b> Цена за 1 шт. (число, например <code>15</code> или <code>12.5</code>).\n"
+                         "Отправьте «-», если цена по запросу — клиент оформит заявку, а цену вы пришлёте сами.")
 
 
 @router.message(AddProduct.price, ADMIN_TEXT)
 async def add_price(message: Message, state: FSMContext):
-    price = _parse_price(message.text)
+    on_request = message.text.strip() in {"-", "—"}
+    price = 0.0 if on_request else _parse_price(message.text)
     if price is None:
-        await message.answer("Нужно положительное число, например 15 или 12.5")
+        await message.answer("Нужно положительное число, например 15 или 12.5, или «-» — цена по запросу")
         return
-    await state.update_data(price=price)
+    await state.update_data(price=price, tiers=[])
+    if on_request:  # оптовая шкала без цены не нужна
+        await start_media_step(message, state)
+        return
     await state.set_state(AddProduct.tiers)
     await message.answer("<b>4/6.</b> 📉 Оптовые цены — чем больше берут, тем дешевле.\n\n" + TIERS_HELP
                          + "\n\nБез оптовых цен — отправьте «-».")
@@ -262,6 +274,10 @@ async def add_tiers(message: Message, state: FSMContext):
         await message.answer("⚠️ " + error)
         return
     await state.update_data(tiers=tiers)
+    await start_media_step(message, state)
+
+
+async def start_media_step(message: Message, state: FSMContext):
     await state.set_state(AddProduct.media)
     _pending_media[message.from_user.id] = []
     await message.answer(
@@ -318,7 +334,8 @@ async def prods(call: CallbackQuery):
     kb = InlineKeyboardBuilder()
     for p in rows:
         mark = "👁" if p["active"] else "🙈"
-        kb.button(text=f"{mark} {p['name']} — {money(p['price'])}", callback_data=Adm(a="p", id=p["id"]))
+        price = money(p["price"]) if p["price"] else "по запросу"
+        kb.button(text=f"{mark} {p['name']} — {price}", callback_data=Adm(a="p", id=p["id"]))
     kb.button(text="⬅️ Меню", callback_data=Adm(a="menu"))
     kb.adjust(1)
     await call.message.answer("📋 <b>Товары</b> (👁 в продаже, 🙈 скрыт):", reply_markup=kb.as_markup())
@@ -367,7 +384,7 @@ async def delete_yes(call: CallbackQuery, callback_data: Adm):
 EDIT_PROMPTS = {
     "name": "Новое название:",
     "description": "Новое описание (или «-», чтобы убрать):",
-    "price": "Новая цена (число):",
+    "price": "Новая цена (число) или «-» — цена по запросу:",
     "flavors": "Добавьте вкусы через запятую или с новой строки:",
     "tiers": "📉 Новые оптовые цены (старые заменятся). «-» — убрать все.\n\n" + TIERS_HELP,
 }
@@ -394,10 +411,13 @@ async def edit_start(call: CallbackQuery, callback_data: Adm, state: FSMContext)
 async def edit_value(message: Message, state: FSMContext, bot: Bot):
     d = await state.get_data()
     pid, field, text = d["pid"], d["field"], message.text.strip()
-    if field == "price":
+    if field == "price" and text in {"-", "—"}:
+        await db.update_product(pid, "price", 0)
+        await db.set_tiers(pid, [])
+    elif field == "price":
         price = _parse_price(text)
         if price is None:
-            await message.answer("Нужно положительное число.")
+            await message.answer("Нужно положительное число или «-» — цена по запросу.")
             return
         tiers = await db.tiers(pid)
         if tiers and price <= tiers[0]["price"]:
@@ -409,6 +429,9 @@ async def edit_value(message: Message, state: FSMContext, bot: Bot):
         await db.add_flavors(pid, _parse_flavors(text))
     elif field == "tiers":
         p = await db.product(pid)
+        if not p["price"]:
+            await message.answer("У товара цена по запросу — сначала задайте базовую цену «💲 Цена».")
+            return
         tiers, error = _parse_tiers(text, p["price"])
         if tiers is None:
             await message.answer("⚠️ " + error)
@@ -485,7 +508,7 @@ async def orders(call: CallbackQuery):
         return
     kb = InlineKeyboardBuilder()
     for o in rows:
-        kb.button(text=f"#{o['id']} · {o['customer_name']} · {money(o['total'])} · {STATUS[o['status']]}",
+        kb.button(text=f"#{o['id']} · {o['customer_name']} · {order_total(o)} · {STATUS[o['status']]}",
                   callback_data=Adm(a="o", id=o["id"]))
     kb.adjust(1)
     await call.message.answer("📦 <b>Активные заказы:</b>", reply_markup=kb.as_markup())
@@ -629,12 +652,55 @@ async def review_delete(call: CallbackQuery, callback_data: Adm):
     await call.message.edit_reply_markup(reply_markup=None)
 
 
+# ---------- цена по запросу ----------
+
+@router.callback_query(Adm.filter(F.a == "set_price"))
+async def set_price_start(call: CallbackQuery, callback_data: Adm, state: FSMContext):
+    o = await db.order(callback_data.id)
+    if not o or o["status"] not in ("quote", "priced"):
+        await call.answer("Цену для этого заказа уже не назначить", show_alert=True)
+        return
+    await call.answer()
+    await state.set_state(SetPrice.total)
+    await state.update_data(oid=o["id"])
+    await call.message.answer(f"💲 Заказ #{o['id']}: введите <b>итоговую сумму</b> для клиента (число).\n"
+                              "Можно добавить комментарий через пробел, например:\n"
+                              "<code>240 включая доставку UPS</code>\n\n/cancel — отмена")
+
+
+@router.message(SetPrice.total, ADMIN_TEXT)
+async def set_price_value(message: Message, state: FSMContext, bot: Bot):
+    raw, _, note = message.text.strip().partition(" ")
+    total = _parse_price(raw)
+    if total is None:
+        await message.answer("Нужно положительное число, например 240")
+        return
+    oid = (await state.get_data())["oid"]
+    await state.clear()
+    o = await db.order(oid)
+    if not o or o["status"] not in ("quote", "priced"):
+        await message.answer("Этот заказ уже подтверждён или отменён.")
+        return
+    await db.set_order_price(oid, total)
+    o = await db.order(oid)
+    text = (f"💲 <b>Стоимость вашего заказа #{oid}: {money(total)}</b>"
+            + (f"\n💬 {esc(note)}" if note else "")
+            + "\n\n" + order_text(o, await db.order_items(oid)) + "\n\nПодтверждаете?")
+    try:
+        await bot.send_message(o["user_id"], text, reply_markup=quote_kb(oid))
+        await message.answer(f"✅ Цена {money(total)} отправлена клиенту. Как только он подтвердит — придёт уведомление.",
+                             reply_markup=order_status_kb(oid, "priced"))
+    except Exception as e:
+        log.warning("Не удалось отправить цену клиенту %s: %s", o["user_id"], e)
+        await message.answer("⚠️ Не удалось написать клиенту (возможно, он заблокировал бота).")
+
+
 # ---------- статистика ----------
 
 @router.callback_query(Adm.filter(F.a == "stats"))
 async def stats(call: CallbackQuery):
     await call.answer()
-    lines = ["📊 <b>Статистика</b> (без отменённых)", ""]
+    lines = ["📊 <b>Статистика</b> (подтверждённые заказы)", ""]
     for label, period in (("24 часа", "-1 day"), ("7 дней", "-7 days"), ("30 дней", "-30 days"), ("Всё время", None)):
         cnt, revenue = await db.stats(period)
         lines.append(f"<b>{label}:</b> {cnt} заказ(ов) · {money(revenue)}")

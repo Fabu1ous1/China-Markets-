@@ -23,4 +23,13 @@ DELIVERY_METHODS = _list("DELIVERY_METHODS", "Курьер,Самовывоз,Т
 PAYMENT_METHODS = _list("PAYMENT_METHODS", "Наличные,Перевод на карту,USDT")
 CONTACTS = os.getenv("CONTACTS", "Пишите менеджеру: @your_manager").replace("\\n", "\n")
 
+# 1 — цены скрыты: клиент оформляет заявку, админ присылает цену, клиент подтверждает.
+# Отдельный товар можно сделать «по запросу», указав цену «-» в админке.
+HIDE_PRICES = os.getenv("HIDE_PRICES", "0") == "1"
+
+# Регион доставки (для США — штаты). Пусто — шаг не спрашивается.
+REGION_LABEL = os.getenv("REGION_LABEL", "Штат")
+REGIONS = [x.upper() for x in _list("REGIONS")]
+BLOCKED_REGIONS = {x.upper() for x in _list("BLOCKED_REGIONS")}
+
 DB_PATH = os.getenv("DB_PATH", "shop.db")

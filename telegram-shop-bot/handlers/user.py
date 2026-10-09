@@ -10,14 +10,17 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import db
 import pricing
-from config import ADMIN_IDS, CONTACTS, DELIVERY_METHODS, MIN_AGE, PAYMENT_METHODS, SHOP_NAME
+from config import (
+    ADMIN_IDS, BLOCKED_REGIONS, CONTACTS, DELIVERY_METHODS, HIDE_PRICES, MIN_AGE, PAYMENT_METHODS,
+    REGION_LABEL, REGIONS, SHOP_NAME,
+)
 from keyboards import (
     BTN_CANCEL, BTN_CART, BTN_CATALOG, BTN_CONTACTS, BTN_ORDERS, BTN_SKIP,
-    Adm, Age, CartAct, Cat, Flv, Nav, Pick, Prod, Qty, Rev, Wait,
+    Adm, Age, CartAct, Cat, Flv, Nav, Pick, Prod, Qty, Quote, Rev, Wait,
     added_kb, age_kb, cart_kb, categories_kb, confirm_kb, input_kb, main_menu,
     order_status_kb, pick_kb, product_kb, products_kb, qty_kb, stars_kb, wait_kb,
 )
-from utils import STATUS, esc, local_time, money, order_text, product_text, send_product, stars
+from utils import STATUS, esc, local_time, money, order_text, order_total, product_text, send_product, stars
 
 router = Router()
 log = logging.getLogger(__name__)
@@ -26,6 +29,7 @@ log = logging.getLogger(__name__)
 class Checkout(StatesGroup):
     name = State()
     phone = State()
+    region = State()
     address = State()
     delivery = State()
     payment = State()
@@ -54,7 +58,7 @@ class AgeGate(BaseMiddleware):
             return await handler(event, data)
         if await db.is_age_ok(user.id):
             return await handler(event, data)
-        await data["bot"].send_message(user.id, f"🔞 Вам уже исполнилось {MIN_AGE} лет?", reply_markup=age_kb())
+        await data["bot"].send_message(user.id, f"🔞 Вам уже есть {MIN_AGE}?", reply_markup=age_kb())
         if isinstance(event, CallbackQuery):
             await event.answer()
 
@@ -72,7 +76,7 @@ async def start(message: Message, state: FSMContext):
     await db.upsert_user(u.id, u.username, u.full_name)
     if MIN_AGE > 0 and u.id not in ADMIN_IDS and not await db.is_age_ok(u.id):
         await message.answer(
-            f"👋 Добро пожаловать в <b>{esc(SHOP_NAME)}</b>!\n\n🔞 Вам уже исполнилось {MIN_AGE} лет?",
+            f"👋 Добро пожаловать в <b>{esc(SHOP_NAME)}</b>!\n\n🔞 Вам уже есть {MIN_AGE}?",
             reply_markup=age_kb(),
         )
         return
@@ -86,7 +90,7 @@ async def start(message: Message, state: FSMContext):
 async def age_answer(call: CallbackQuery, callback_data: Age):
     await call.message.delete()
     if not callback_data.ok:
-        await call.message.answer(f"😔 Извините, магазин доступен только лицам старше {MIN_AGE} лет.")
+        await call.message.answer(f"😔 Извините, магазин только для покупателей {MIN_AGE}+.")
         return
     u = call.from_user
     await db.upsert_user(u.id, u.username, u.full_name)
@@ -116,7 +120,7 @@ async def my_orders(message: Message, state: FSMContext):
         return
     lines = ["📦 <b>Ваши заказы:</b>", ""]
     for o in orders:
-        lines.append(f"#{o['id']} · {local_time(o['created_at'])} · {money(o['total'])} · {STATUS[o['status']]}")
+        lines.append(f"#{o['id']} · {local_time(o['created_at'])} · {order_total(o)} · {STATUS[o['status']]}")
     await message.answer("\n".join(lines))
 
 
@@ -155,7 +159,7 @@ async def category(call: CallbackQuery, callback_data: Cat):
     if not prods:
         await call.message.answer("В этой категории пока нет товаров.")
         return
-    await call.message.answer("Выберите товар:", reply_markup=products_kb(prods))
+    await call.message.answer("Выберите товар:", reply_markup=products_kb(prods, HIDE_PRICES))
 
 
 @router.callback_query(Prod.filter())
@@ -167,7 +171,7 @@ async def product(call: CallbackQuery, callback_data: Prod, bot: Bot):
     await call.answer()
     flavors = await db.flavors(p["id"])
     rating = await db.rating(p["id"])
-    text = product_text(p, flavors, tiers=await db.tiers(p["id"]), rating=rating)
+    text = product_text(p, flavors, tiers=await db.tiers(p["id"]), rating=rating, hidden=pricing.price_hidden(p))
     await send_product(bot, call.message.chat.id, await db.media(p["id"]), text, product_kb(p, flavors, rating[1]))
 
 
@@ -207,10 +211,13 @@ async def stock_wait(call: CallbackQuery, callback_data: Wait):
 
 async def qty_view(uid: int, p, f, qty: int):
     """Текст и клавиатура выбора количества с живой оптовой ценой."""
+    label = esc(p["name"]) + (f" — {esc(f['name'])}" if f else "")
+    if pricing.price_hidden(p):
+        text = f"<b>{label}</b>\n💰 Цена по запросу — менеджер пришлёт стоимость после заявки.\n\nВыберите количество:"
+        return text, qty_kb(p["id"], f["id"] if f else 0, qty, None)
     tiers = await db.tiers(p["id"])
     in_cart = sum(it["qty"] for it in await db.cart_items(uid) if it["product_id"] == p["id"])
     unit = pricing.unit_price(p["price"], tiers, in_cart + qty)
-    label = esc(p["name"]) + (f" — {esc(f['name'])}" if f else "")
     lines = [f"<b>{label}</b>", f"Цена за шт.: <b>{money(unit)}</b>"]
     if unit < p["price"]:
         lines[-1] += f" <s>{money(p['price'])}</s> 🔥"
@@ -259,9 +266,15 @@ async def render_cart(uid: int):
         if not it["ok"]:
             lines.append(f"{i}. {esc(it['name'])}{flavor} × {it['qty']} ⚠️ нет в наличии")
             continue
+        if c["quote"]:
+            lines.append(f"{i}. {esc(it['name'])}{flavor} × {it['qty']}")
+            continue
         old = f" <s>{money(it['price'])}</s>" if it["unit"] < it["price"] else ""
         lines.append(f"{i}. {esc(it['name'])}{flavor} × {it['qty']} по {money(it['unit'])}{old} = {money(it['line'])}")
     lines.append("")
+    if c["quote"]:
+        lines.append("💬 <b>Цену сообщит менеджер</b> — отправьте заявку, и вы получите стоимость прямо здесь.")
+        return "\n".join(lines), cart_kb(c["items"], False, quote=True)
     if c["wholesale_savings"]:
         lines.append(f"📉 Оптовая скидка: −{money(c['wholesale_savings'])}")
     if c["promo"]:
@@ -334,6 +347,10 @@ async def promo_off(call: CallbackQuery):
 
 # ---------- оформление заказа ----------
 
+def step(n: int) -> str:
+    return f"<b>Шаг {n}/{6 + bool(REGIONS)}.</b>"
+
+
 @router.callback_query(CartAct.filter(F.action == "checkout"))
 async def checkout_start(call: CallbackQuery, state: FSMContext):
     uid = call.from_user.id
@@ -348,7 +365,7 @@ async def checkout_start(call: CallbackQuery, state: FSMContext):
     await state.set_state(Checkout.name)
     await state.update_data(last=dict(last) if last else {})
     await call.message.answer(
-        "📝 Оформляем заказ.\n\n<b>Шаг 1/6.</b> Как к вам обращаться?",
+        f"📝 Оформляем заказ.\n\n{step(1)} Как к вам обращаться?",
         reply_markup=input_kb(last["customer_name"] if last else call.from_user.full_name),
     )
 
@@ -360,7 +377,7 @@ async def checkout_name(message: Message, state: FSMContext):
     await state.update_data(name=name)
     await state.set_state(Checkout.phone)
     await message.answer(
-        "<b>Шаг 2/6.</b> 📞 Ваш номер телефона:",
+        f"{step(2)} 📞 Ваш номер телефона:",
         reply_markup=input_kb(data["last"].get("phone", ""), contact=True),
     )
 
@@ -369,13 +386,36 @@ async def checkout_name(message: Message, state: FSMContext):
 async def checkout_phone(message: Message, state: FSMContext):
     phone = message.contact.phone_number if message.contact else message.text.strip()
     if len(re.sub(r"\D", "", phone)) < 6:
-        await message.answer("Похоже, номер некорректный. Введите ещё раз, например +7 999 123-45-67")
+        await message.answer("Похоже, номер некорректный. Введите ещё раз, например +1 202 555 0147")
         return
     data = await state.get_data()
     await state.update_data(phone=phone[:30])
+    if REGIONS:
+        await state.set_state(Checkout.region)
+        await message.answer(f"{step(3)} 🗺 {esc(REGION_LABEL)} — код из 2 букв (например, TX):",
+                             reply_markup=input_kb(data["last"].get("region", "")))
+        return
+    await ask_address(message, state)
+
+
+@router.message(Checkout.region, F.text)
+async def checkout_region(message: Message, state: FSMContext):
+    code = message.text.strip().upper()
+    if code not in REGIONS:
+        await message.answer(f"Не нашли «{esc(code)}». Введите код из 2 букв, например TX, FL, NV.")
+        return
+    if code in BLOCKED_REGIONS:
+        await message.answer(f"😔 К сожалению, в {esc(code)} мы не доставляем из-за ограничений местного закона.")
+        return
+    await state.update_data(region=code)
+    await ask_address(message, state)
+
+
+async def ask_address(message: Message, state: FSMContext):
+    data = await state.get_data()
     await state.set_state(Checkout.address)
     await message.answer(
-        "<b>Шаг 3/6.</b> 📍 Адрес доставки (город, улица, дом, квартира):",
+        f"{step(3 + bool(REGIONS))} 📍 Адрес доставки (город, улица, дом, квартира, ZIP):",
         reply_markup=input_kb(data["last"].get("address", "")),
     )
 
@@ -384,7 +424,7 @@ async def checkout_phone(message: Message, state: FSMContext):
 async def checkout_address(message: Message, state: FSMContext):
     await state.update_data(address=message.text.strip()[:300])
     await state.set_state(Checkout.delivery)
-    await message.answer("<b>Шаг 4/6.</b> 🚚 Способ доставки:", reply_markup=pick_kb("delivery", DELIVERY_METHODS))
+    await message.answer(f"{step(4 + bool(REGIONS))} 🚚 Способ доставки:", reply_markup=pick_kb("delivery", DELIVERY_METHODS))
 
 
 @router.callback_query(Checkout.delivery, Pick.filter(F.kind == "delivery"))
@@ -394,7 +434,7 @@ async def checkout_delivery(call: CallbackQuery, callback_data: Pick, state: FSM
     await state.set_state(Checkout.payment)
     await call.answer()
     await call.message.edit_text(f"🚚 Доставка: <b>{esc(choice)}</b>")
-    await call.message.answer("<b>Шаг 5/6.</b> 💳 Способ оплаты:", reply_markup=pick_kb("payment", PAYMENT_METHODS))
+    await call.message.answer(f"{step(5 + bool(REGIONS))} 💳 Способ оплаты:", reply_markup=pick_kb("payment", PAYMENT_METHODS))
 
 
 @router.callback_query(Checkout.payment, Pick.filter(F.kind == "payment"))
@@ -405,7 +445,7 @@ async def checkout_payment(call: CallbackQuery, callback_data: Pick, state: FSMC
     await call.answer()
     await call.message.edit_text(f"💳 Оплата: <b>{esc(choice)}</b>")
     await call.message.answer(
-        "<b>Шаг 6/6.</b> 💬 Комментарий к заказу (удобное время, пожелания) — или нажмите «Пропустить»:",
+        f"{step(6 + bool(REGIONS))} 💬 Комментарий к заказу (удобное время, пожелания) — или нажмите «Пропустить»:",
         reply_markup=input_kb(skip=True),
     )
 
@@ -421,14 +461,18 @@ async def checkout_comment(message: Message, state: FSMContext):
         cart_text, "",
         f"👤 {esc(d['name'])}",
         f"📞 {esc(d['phone'])}",
-        f"📍 {esc(d['address'])}",
+        f"📍 {esc(d['address'])}" + (f", {esc(d['region'])}" if d.get("region") else ""),
         f"🚚 {esc(d['delivery'])}",
         f"💳 {esc(d['payment'])}",
     ]
     if comment:
         lines.append(f"💬 {esc(comment)}")
+    if MIN_AGE > 0:
+        lines += ["", f"🔞 Подтверждая, вы подтверждаете, что вам {MIN_AGE}+. "
+                      "При получении курьер попросит документ и подпись совершеннолетнего."]
+    quote = (await pricing.cart_summary(message.from_user.id))["quote"]
     await message.answer("Проверьте заказ 👇", reply_markup=ReplyKeyboardRemove())
-    await message.answer("\n".join(lines), reply_markup=confirm_kb())
+    await message.answer("\n".join(lines), reply_markup=confirm_kb(quote))
 
 
 @router.callback_query(Checkout.confirm, CartAct.filter(F.action == "confirm"))
@@ -441,20 +485,50 @@ async def checkout_confirm(call: CallbackQuery, state: FSMContext, bot: Bot):
     if not oid:
         await call.answer("Корзина пуста — товары закончились", show_alert=True)
         return
-    await call.answer("Заказ оформлен!")
-    await call.message.edit_reply_markup(reply_markup=None)
-    await call.message.answer(
-        f"🎉 <b>Заказ #{oid} оформлен!</b>\nМенеджер свяжется с вами в ближайшее время.\n"
-        f"Статус заказа можно посмотреть в разделе «{BTN_ORDERS}».",
-        reply_markup=main_menu(uid),
-    )
     o = await db.order(oid)
-    text = "🔔 <b>НОВЫЙ ЗАКАЗ!</b>\n\n" + order_text(o, await db.order_items(oid), admin=True)
+    quote = o["status"] == "quote"
+    await call.answer("Заявка отправлена!" if quote else "Заказ оформлен!")
+    await call.message.edit_reply_markup(reply_markup=None)
+    if quote:
+        done = (f"📨 <b>Заявка #{oid} отправлена!</b>\nМенеджер рассчитает стоимость и пришлёт её сюда — "
+                "останется только подтвердить.")
+    else:
+        done = f"🎉 <b>Заказ #{oid} оформлен!</b>\nМенеджер свяжется с вами в ближайшее время."
+    await call.message.answer(f"{done}\nСтатус — в разделе «{BTN_ORDERS}».", reply_markup=main_menu(uid))
+    title = "🔔 <b>НОВАЯ ЗАЯВКА — назначьте цену!</b>" if quote else "🔔 <b>НОВЫЙ ЗАКАЗ!</b>"
+    await notify_admins(bot, f"{title}\n\n" + order_text(o, await db.order_items(oid), admin=True),
+                        order_status_kb(oid, o["status"]))
+
+
+async def notify_admins(bot: Bot, text: str, markup=None):
     for admin_id in ADMIN_IDS:
         try:
-            await bot.send_message(admin_id, text, reply_markup=order_status_kb(oid, "new"))
+            await bot.send_message(admin_id, text, reply_markup=markup)
         except Exception as e:  # админ не запускал бота / заблокировал
             log.warning("Не удалось уведомить админа %s: %s", admin_id, e)
+
+
+@router.callback_query(Quote.filter())
+async def quote_answer(call: CallbackQuery, callback_data: Quote, bot: Bot):
+    o = await db.order(callback_data.oid)
+    if not o or o["user_id"] != call.from_user.id or o["status"] != "priced":
+        await call.answer("Это предложение уже неактуально", show_alert=True)
+        return
+    await call.message.edit_reply_markup(reply_markup=None)
+    if callback_data.ok:
+        await db.set_order_status(o["id"], "new")
+        await call.answer("Заказ подтверждён!")
+        await call.message.answer(f"🎉 <b>Заказ #{o['id']} подтверждён</b> на {money(o['total'])}.\n"
+                                  "Менеджер свяжется с вами по оплате и отправке.")
+        o = await db.order(o["id"])
+        await notify_admins(bot, "✅ <b>КЛИЕНТ ПОДТВЕРДИЛ ЦЕНУ!</b>\n\n"
+                            + order_text(o, await db.order_items(o["id"]), admin=True),
+                            order_status_kb(o["id"], "new"))
+    else:
+        await db.set_order_status(o["id"], "cancelled")
+        await call.answer("Заказ отменён")
+        await call.message.answer(f"Заказ #{o['id']} отменён. Если передумаете — мы всегда на связи 🙌")
+        await notify_admins(bot, f"❌ Клиент отказался от заявки #{o['id']} (цена {money(o['total'])}).")
 
 
 @router.callback_query(CartAct.filter(F.action == "abort"))
@@ -526,11 +600,7 @@ async def review_text(message: Message, state: FSMContext, bot: Bot):
     kb.button(text="🗑 Удалить отзыв", callback_data=Adm(a="rv_del", id=rid))
     note = (f"⭐ <b>Новый отзыв</b> · {esc(p['name'])}\n{stars(d['rating'])} от {esc(message.from_user.full_name)}"
             + (f"\n\n{esc(text)}" if text else ""))
-    for admin_id in ADMIN_IDS:
-        try:
-            await bot.send_message(admin_id, note, reply_markup=kb.as_markup())
-        except Exception as e:
-            log.warning("Не удалось уведомить админа %s: %s", admin_id, e)
+    await notify_admins(bot, note, kb.as_markup())
 
 
 @router.callback_query(Pick.filter())

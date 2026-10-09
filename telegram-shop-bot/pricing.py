@@ -1,5 +1,11 @@
 """Расчёт цен: оптовая шкала (чем больше штук — тем дешевле) и промокоды."""
 import db
+from config import HIDE_PRICES
+
+
+def price_hidden(p) -> bool:
+    """Цена по запросу: глобально (HIDE_PRICES) или у товара цена не задана."""
+    return HIDE_PRICES or not p["price"]
 
 
 def unit_price(base: float, tiers, qty: int) -> float:
@@ -47,6 +53,7 @@ async def cart_summary(uid: int) -> dict:
     items = [dict(r) for r in await db.cart_items(uid)]
     for it in items:
         it["ok"] = bool(it["active"] and it["in_stock"])
+        it["hidden"] = price_hidden(it)
 
     qty_by_product: dict[int, int] = {}
     for it in items:
@@ -62,6 +69,10 @@ async def cart_summary(uid: int) -> dict:
         it["line"] = round(it["unit"] * it["qty"], 2)
 
     ok = [it for it in items if it["ok"]]
+    if any(it["hidden"] for it in ok):
+        # Есть товар «цена по запросу» — итог назначит админ, промокод не тратим
+        return {"items": items, "quote": True, "subtotal": 0, "wholesale_savings": 0, "promo": None,
+                "promo_error": "", "discount": 0, "total": 0, "hints": []}
     subtotal = round(sum(it["line"] for it in ok), 2)
     full_price = round(sum(it["price"] * it["qty"] for it in ok), 2)
 
@@ -83,6 +94,7 @@ async def cart_summary(uid: int) -> dict:
 
     return {
         "items": items,
+        "quote": False,
         "subtotal": subtotal,
         "wholesale_savings": round(full_price - subtotal, 2),
         "promo": promo,

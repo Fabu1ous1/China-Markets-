@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS orders (
     delivery TEXT NOT NULL,
     payment TEXT NOT NULL,
     comment TEXT NOT NULL DEFAULT '',
+    region TEXT NOT NULL DEFAULT '',
     subtotal REAL NOT NULL DEFAULT 0,
     discount REAL NOT NULL DEFAULT 0,
     promo TEXT NOT NULL DEFAULT '',
@@ -111,6 +112,7 @@ MIGRATIONS = [
     ("orders", "subtotal", "subtotal REAL NOT NULL DEFAULT 0"),
     ("orders", "discount", "discount REAL NOT NULL DEFAULT 0"),
     ("orders", "promo", "promo TEXT NOT NULL DEFAULT ''"),
+    ("orders", "region", "region TEXT NOT NULL DEFAULT ''"),
     ("order_items", "product_id", "product_id INTEGER NOT NULL DEFAULT 0"),
 ]
 
@@ -332,17 +334,20 @@ async def create_order(uid: int, d: dict, summary: dict) -> int | None:
     if not items:
         return None
     promo = summary["promo"]
+    status = "quote" if summary["quote"] else "new"  # quote — ждёт цену от админа
     cur = await _db.execute(
-        "INSERT INTO orders (user_id, customer_name, phone, address, delivery, payment, comment, "
-        "subtotal, discount, promo, total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (uid, d["name"], d["phone"], d["address"], d["delivery"], d["payment"], d.get("comment", ""),
-         summary["subtotal"], summary["discount"], promo["code"] if promo else "", summary["total"]),
+        "INSERT INTO orders (user_id, customer_name, phone, address, region, delivery, payment, comment, "
+        "subtotal, discount, promo, total, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (uid, d["name"], d["phone"], d["address"], d.get("region", ""), d["delivery"], d["payment"],
+         d.get("comment", ""), summary["subtotal"], summary["discount"], promo["code"] if promo else "",
+         summary["total"], status),
     )
     oid = cur.lastrowid
     await _db.executemany(
         "INSERT INTO order_items (order_id, product_id, product_name, flavor_name, price, qty) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        [(oid, it["product_id"], it["name"], it["flavor"], it["unit"], it["qty"]) for it in items],
+        [(oid, it["product_id"], it["name"], it["flavor"], 0 if it["hidden"] else it["unit"], it["qty"])
+         for it in items],
     )
     await _db.execute("DELETE FROM cart WHERE user_id=?", (uid,))
     if promo:
@@ -375,7 +380,8 @@ async def last_order(uid: int):
 
 async def active_orders(limit: int = 30):
     return await _all(
-        "SELECT * FROM orders WHERE status IN ('new', 'accepted', 'shipped') ORDER BY id DESC LIMIT ?", limit
+        "SELECT * FROM orders WHERE status IN ('quote', 'priced', 'new', 'accepted', 'shipped') "
+        "ORDER BY id DESC LIMIT ?", limit
     )
 
 
@@ -383,8 +389,15 @@ async def set_order_status(oid: int, status: str) -> None:
     await _run("UPDATE orders SET status=? WHERE id=?", status, oid)
 
 
+async def set_order_price(oid: int, total: float) -> None:
+    await _run("UPDATE orders SET subtotal=?, discount=0, total=?, status='priced' WHERE id=?", total, total, oid)
+
+
+SOLD = "status IN ('new', 'accepted', 'shipped', 'delivered')"  # заявки без цены и отмены не считаем
+
+
 async def stats(period: str | None):
-    where = "status != 'cancelled'"
+    where = SOLD
     if period:
         where += f" AND created_at >= datetime('now', '{period}')"
     row = await _one(f"SELECT COUNT(*) AS cnt, COALESCE(SUM(total), 0) AS revenue FROM orders WHERE {where}")
@@ -394,7 +407,7 @@ async def stats(period: str | None):
 async def top_products(limit: int = 5):
     return await _all(
         "SELECT oi.product_name, oi.flavor_name, SUM(oi.qty) AS qty, SUM(oi.qty * oi.price) AS revenue "
-        "FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.status != 'cancelled' "
+        f"FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.{SOLD} "
         "GROUP BY oi.product_name, oi.flavor_name ORDER BY qty DESC LIMIT ?",
         limit,
     )

@@ -70,6 +70,11 @@ class Wait(CallbackData, prefix="wait"):
     fid: int
 
 
+class Quote(CallbackData, prefix="quote"):
+    oid: int
+    ok: int
+
+
 class Adm(CallbackData, prefix="adm"):
     a: str
     id: int = 0
@@ -118,10 +123,11 @@ def categories_kb(cats):
     return kb.as_markup()
 
 
-def products_kb(prods):
+def products_kb(prods, hide_prices: bool):
     kb = InlineKeyboardBuilder()
     for p in prods:
-        kb.button(text=f"{p['name']} — {money(p['price'])}", callback_data=Prod(id=p["id"]))
+        price = "" if hide_prices or not p["price"] else f" — {money(p['price'])}"
+        kb.button(text=f"{p['name']}{price}", callback_data=Prod(id=p["id"]))
     kb.button(text="⬅️ Категории", callback_data=Nav(to="catalog"))
     kb.adjust(1)
     return kb.as_markup()
@@ -147,13 +153,15 @@ def product_kb(p, flavors, reviews_count: int = 0):
     return kb.as_markup()
 
 
-def qty_kb(pid: int, fid: int, qty: int, unit: float):
+def qty_kb(pid: int, fid: int, qty: int, unit: float | None):
+    """unit=None — цена по запросу, сумму на кнопке не показываем."""
     kb = InlineKeyboardBuilder()
     kb.button(text="➖", callback_data=Qty(pid=pid, fid=fid, qty=max(1, qty - 1)))
     kb.button(text=str(qty), callback_data=Nav(to="noop"))
     kb.button(text="➕", callback_data=Qty(pid=pid, fid=fid, qty=min(99, qty + 1)))
     kb.button(text="➕5", callback_data=Qty(pid=pid, fid=fid, qty=min(99, qty + 5)))
-    kb.button(text=f"✅ В корзину — {money(unit * qty)}", callback_data=Qty(pid=pid, fid=fid, qty=qty, add=1))
+    total = f" — {money(unit * qty)}" if unit is not None else ""
+    kb.button(text=f"✅ В корзину{total}", callback_data=Qty(pid=pid, fid=fid, qty=qty, add=1))
     kb.button(text="⬅️ Назад к товару", callback_data=Prod(id=pid))
     kb.adjust(4, 1, 1)
     return kb.as_markup()
@@ -167,18 +175,19 @@ def added_kb():
     return kb.as_markup()
 
 
-def cart_kb(items, has_promo: bool):
+def cart_kb(items, has_promo: bool, quote: bool = False):
     kb = InlineKeyboardBuilder()
     for it in items:
         label = f"{it['name']} {it['flavor']}".strip()
         kb.button(text=f"❌ {label}", callback_data=CartAct(action="del", pid=it["product_id"], fid=it["flavor_id"]))
-    if has_promo:
-        kb.button(text="🎟 Убрать промокод", callback_data=CartAct(action="promo_off"))
-    else:
-        kb.button(text="🎟 Ввести промокод", callback_data=CartAct(action="promo"))
+    if not quote:  # при цене по запросу итог назначает менеджер — промокод не нужен
+        if has_promo:
+            kb.button(text="🎟 Убрать промокод", callback_data=CartAct(action="promo_off"))
+        else:
+            kb.button(text="🎟 Ввести промокод", callback_data=CartAct(action="promo"))
     kb.button(text="🗑 Очистить", callback_data=CartAct(action="clear"))
-    kb.button(text="✅ Оформить заказ", callback_data=CartAct(action="checkout"))
-    kb.adjust(*([1] * len(items)), 1, 2)
+    kb.button(text="📨 Отправить заявку" if quote else "✅ Оформить заказ", callback_data=CartAct(action="checkout"))
+    kb.adjust(*([1] * len(items)), *([] if quote else [1]), 2)
     return kb.as_markup()
 
 
@@ -190,9 +199,9 @@ def pick_kb(kind: str, options: list[str]):
     return kb.as_markup()
 
 
-def confirm_kb():
+def confirm_kb(quote: bool = False):
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Подтвердить заказ", callback_data=CartAct(action="confirm"))
+    kb.button(text="📨 Отправить заявку" if quote else "✅ Подтвердить заказ", callback_data=CartAct(action="confirm"))
     kb.button(text="❌ Отменить", callback_data=CartAct(action="abort"))
     kb.adjust(1)
     return kb.as_markup()
@@ -202,6 +211,12 @@ def confirm_kb():
 
 def order_status_kb(oid: int, current: str):
     kb = InlineKeyboardBuilder()
+    if current in ("quote", "priced"):
+        kb.button(text="💲 Назначить цену" if current == "quote" else "💲 Изменить цену",
+                  callback_data=Adm(a="set_price", id=oid))
+        kb.button(text=STATUS["cancelled"], callback_data=OrdSt(oid=oid, st="cancelled"))
+        kb.adjust(1)
+        return kb.as_markup()
     for st in ("accepted", "shipped", "delivered", "cancelled"):
         if st != current:
             kb.button(text=STATUS[st], callback_data=OrdSt(oid=oid, st=st))
@@ -275,4 +290,12 @@ def wait_kb(fid: int):
 def product_link_kb(pid: int):
     kb = InlineKeyboardBuilder()
     kb.button(text="🛍 Открыть товар", callback_data=Prod(id=pid))
+    return kb.as_markup()
+
+
+def quote_kb(oid: int):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Подтверждаю заказ", callback_data=Quote(oid=oid, ok=1))
+    kb.button(text="❌ Отказаться", callback_data=Quote(oid=oid, ok=0))
+    kb.adjust(1)
     return kb.as_markup()
