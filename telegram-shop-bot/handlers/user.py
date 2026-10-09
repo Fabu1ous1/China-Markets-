@@ -6,16 +6,18 @@ from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import db
+import pricing
 from config import ADMIN_IDS, CONTACTS, DELIVERY_METHODS, MIN_AGE, PAYMENT_METHODS, SHOP_NAME
 from keyboards import (
     BTN_CANCEL, BTN_CART, BTN_CATALOG, BTN_CONTACTS, BTN_ORDERS, BTN_SKIP,
-    Age, CartAct, Cat, Flv, Nav, Pick, Prod, Qty,
+    Adm, Age, CartAct, Cat, Flv, Nav, Pick, Prod, Qty, Rev, Wait,
     added_kb, age_kb, cart_kb, categories_kb, confirm_kb, input_kb, main_menu,
-    order_status_kb, pick_kb, product_kb, products_kb, qty_kb,
+    order_status_kb, pick_kb, product_kb, products_kb, qty_kb, stars_kb, wait_kb,
 )
-from utils import STATUS, esc, local_time, money, order_text, product_text, send_product
+from utils import STATUS, esc, local_time, money, order_text, product_text, send_product, stars
 
 router = Router()
 log = logging.getLogger(__name__)
@@ -29,6 +31,14 @@ class Checkout(StatesGroup):
     payment = State()
     comment = State()
     confirm = State()
+
+
+class PromoInput(StatesGroup):
+    code = State()
+
+
+class ReviewText(StatesGroup):
+    text = State()
 
 
 class AgeGate(BaseMiddleware):
@@ -156,7 +166,9 @@ async def product(call: CallbackQuery, callback_data: Prod, bot: Bot):
         return
     await call.answer()
     flavors = await db.flavors(p["id"])
-    await send_product(bot, call.message.chat.id, await db.media(p["id"]), product_text(p, flavors), product_kb(p, flavors))
+    rating = await db.rating(p["id"])
+    text = product_text(p, flavors, tiers=await db.tiers(p["id"]), rating=rating)
+    await send_product(bot, call.message.chat.id, await db.media(p["id"]), text, product_kb(p, flavors, rating[1]))
 
 
 @router.callback_query(Flv.filter())
@@ -167,13 +179,48 @@ async def pick_flavor(call: CallbackQuery, callback_data: Flv):
         await call.answer("Товар недоступен", show_alert=True)
         return
     if not f["in_stock"]:
-        await call.answer(f"😔 Вкус «{f['name']}» закончился", show_alert=True)
+        await call.answer()
+        await call.message.answer(
+            f"😔 Вкус «{esc(f['name'])}» ({esc(p['name'])}) сейчас закончился.\n"
+            "Нажмите кнопку — бот напишет, как только он снова появится.",
+            reply_markup=wait_kb(f["id"]),
+        )
         return
     await call.answer()
-    await call.message.answer(
-        f"<b>{esc(p['name'])}</b> — {esc(f['name'])}\nЦена: {money(p['price'])}\n\nВыберите количество:",
-        reply_markup=qty_kb(p["id"], f["id"], 1, p["price"]),
-    )
+    text, markup = await qty_view(call.from_user.id, p, f, 1)
+    await call.message.answer(text, reply_markup=markup)
+
+
+@router.callback_query(Wait.filter())
+async def stock_wait(call: CallbackQuery, callback_data: Wait):
+    f = await db.flavor(callback_data.fid)
+    if not f:
+        await call.answer("Вкус больше не продаётся", show_alert=True)
+        return
+    if f["in_stock"]:
+        await call.answer("Он уже в наличии — заказывайте! 🎉", show_alert=True)
+        return
+    await db.add_stock_wait(call.from_user.id, f["id"])
+    await call.answer("🔔 Готово! Напишем, как только появится.", show_alert=True)
+    await call.message.edit_reply_markup(reply_markup=None)
+
+
+async def qty_view(uid: int, p, f, qty: int):
+    """Текст и клавиатура выбора количества с живой оптовой ценой."""
+    tiers = await db.tiers(p["id"])
+    in_cart = sum(it["qty"] for it in await db.cart_items(uid) if it["product_id"] == p["id"])
+    unit = pricing.unit_price(p["price"], tiers, in_cart + qty)
+    label = esc(p["name"]) + (f" — {esc(f['name'])}" if f else "")
+    lines = [f"<b>{label}</b>", f"Цена за шт.: <b>{money(unit)}</b>"]
+    if unit < p["price"]:
+        lines[-1] += f" <s>{money(p['price'])}</s> 🔥"
+    if in_cart:
+        lines.append(f"<i>В корзине уже {in_cart} шт. этой модели — они тоже учитываются в скидке.</i>")
+    nt = pricing.next_tier(tiers, in_cart + qty)
+    if nt:
+        lines.append(f"💡 Возьмите ещё {nt['min_qty'] - in_cart - qty} шт. — будет по {money(nt['price'])}/шт.")
+    lines += ["", "Выберите количество:"]
+    return "\n".join(lines), qty_kb(p["id"], f["id"] if f else 0, qty, unit)
 
 
 @router.callback_query(Qty.filter())
@@ -187,8 +234,7 @@ async def quantity(call: CallbackQuery, callback_data: Qty):
     label = f"{esc(p['name'])}" + (f" — {esc(f['name'])}" if f else "")
 
     if not cd.add:
-        text = f"<b>{label}</b>\nЦена: {money(p['price'])}\n\nВыберите количество:"
-        markup = qty_kb(p["id"], cd.fid, cd.qty, p["price"])
+        text, markup = await qty_view(call.from_user.id, p, f, cd.qty)
         if not call.message.text:  # карточка товара с фото — шлём выбор отдельным сообщением
             await call.message.answer(text, reply_markup=markup)
         elif call.message.reply_markup != markup:
@@ -204,19 +250,28 @@ async def quantity(call: CallbackQuery, callback_data: Qty):
 # ---------- корзина ----------
 
 async def render_cart(uid: int):
-    items = await db.cart_items(uid)
-    if not items:
+    c = await pricing.cart_summary(uid)
+    if not c["items"]:
         return "🛒 Корзина пуста.", None
     lines = ["🛒 <b>Ваша корзина:</b>", ""]
-    total = 0
-    for i, it in enumerate(items, 1):
+    for i, it in enumerate(c["items"], 1):
         flavor = f" ({esc(it['flavor'])})" if it["flavor"] else ""
-        bad = "" if it["active"] and it["in_stock"] else " ⚠️ нет в наличии"
-        lines.append(f"{i}. {esc(it['name'])}{flavor} × {it['qty']} = {money(it['price'] * it['qty'])}{bad}")
-        if not bad:
-            total += it["price"] * it["qty"]
-    lines += ["", f"💰 <b>Итого: {money(total)}</b>"]
-    return "\n".join(lines), cart_kb(items)
+        if not it["ok"]:
+            lines.append(f"{i}. {esc(it['name'])}{flavor} × {it['qty']} ⚠️ нет в наличии")
+            continue
+        old = f" <s>{money(it['price'])}</s>" if it["unit"] < it["price"] else ""
+        lines.append(f"{i}. {esc(it['name'])}{flavor} × {it['qty']} по {money(it['unit'])}{old} = {money(it['line'])}")
+    lines.append("")
+    if c["wholesale_savings"]:
+        lines.append(f"📉 Оптовая скидка: −{money(c['wholesale_savings'])}")
+    if c["promo"]:
+        lines += [f"Сумма: {money(c['subtotal'])}", f"🎟 Промокод {esc(c['promo']['code'])}: −{money(c['discount'])}"]
+    if c["promo_error"]:
+        lines.append(f"⚠️ Промокод снят: {c['promo_error']}")
+    lines.append(f"💰 <b>Итого: {money(c['total'])}</b>")
+    for name, more, price in c["hints"]:
+        lines.append(f"💡 {esc(name)}: ещё {more} шт. — и будет по {money(price)}/шт.")
+    return "\n".join(lines), cart_kb(c["items"], bool(c["promo"]))
 
 
 @router.message(F.text == BTN_CART)
@@ -243,6 +298,37 @@ async def cart_edit(call: CallbackQuery, callback_data: CartAct):
         await db.cart_remove(uid, callback_data.pid, callback_data.fid)
     await call.answer("Готово")
     text, kb = await render_cart(uid)
+    await call.message.edit_text(text, reply_markup=kb)
+
+
+@router.callback_query(CartAct.filter(F.action == "promo"))
+async def promo_ask(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await state.set_state(PromoInput.code)
+    await call.message.answer("🎟 Введите промокод:", reply_markup=input_kb())
+
+
+@router.message(PromoInput.code, F.text)
+async def promo_enter(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    promo, error = await pricing.check_promo(message.text.strip(), uid)
+    if not promo:
+        await message.answer(f"😔 {error}. Попробуйте другой или нажмите «{BTN_CANCEL}».")
+        return
+    await state.clear()
+    await db.set_user_promo(uid, promo["code"])
+    discount = f"{promo['value']:g}%" if promo["kind"] == "percent" else money(promo["value"])
+    await message.answer(f"✅ Промокод <b>{esc(promo['code'])}</b> применён: скидка {discount}",
+                         reply_markup=main_menu(uid))
+    text, kb = await render_cart(uid)
+    await message.answer(text, reply_markup=kb)
+
+
+@router.callback_query(CartAct.filter(F.action == "promo_off"))
+async def promo_off(call: CallbackQuery):
+    await db.set_user_promo(call.from_user.id, "")
+    await call.answer("Промокод убран")
+    text, kb = await render_cart(call.from_user.id)
     await call.message.edit_text(text, reply_markup=kb)
 
 
@@ -350,7 +436,8 @@ async def checkout_confirm(call: CallbackQuery, state: FSMContext, bot: Bot):
     uid = call.from_user.id
     data = await state.get_data()
     await state.clear()
-    oid = await db.create_order(uid, data)
+    summary = await pricing.cart_summary(uid)
+    oid = await db.create_order(uid, data, summary)
     if not oid:
         await call.answer("Корзина пуста — товары закончились", show_alert=True)
         return
@@ -378,11 +465,79 @@ async def checkout_abort(call: CallbackQuery, state: FSMContext):
     await call.message.answer("Оформление отменено, корзина сохранена.", reply_markup=main_menu(call.from_user.id))
 
 
+# ---------- отзывы ----------
+
+@router.callback_query(Rev.filter(F.a == "list"))
+async def reviews_list(call: CallbackQuery, callback_data: Rev):
+    await call.answer()
+    p = await db.product(callback_data.pid)
+    rows = await db.reviews(callback_data.pid)
+    if not p or not rows:
+        await call.message.answer("Отзывов пока нет.")
+        return
+    avg, cnt = await db.rating(p["id"])
+    lines = [f"💬 <b>Отзывы: {esc(p['name'])}</b>", f"{stars(avg)} {avg:.1f} · {cnt} отзыв(ов)", ""]
+    for r in rows:
+        name = esc((r["full_name"] or "Покупатель").split()[0])
+        lines.append(f"{stars(r['rating'])} <b>{name}</b> · {local_time(r['created_at'])[:10]}")
+        if r["text"]:
+            lines.append(esc(r["text"]))
+        lines.append("")
+    await call.message.answer("\n".join(lines))
+
+
+@router.callback_query(Rev.filter(F.a == "start"))
+async def review_start(call: CallbackQuery, callback_data: Rev):
+    if not await db.can_review(call.from_user.id, callback_data.oid, callback_data.pid):
+        await call.answer("Отзыв можно оставить один раз на товар из доставленного заказа 👍", show_alert=True)
+        return
+    p = await db.product(callback_data.pid)
+    await call.answer()
+    await call.message.answer(f"Как вам <b>{esc(p['name'])}</b>? Поставьте оценку:",
+                              reply_markup=stars_kb(callback_data.oid, callback_data.pid))
+
+
+@router.callback_query(Rev.filter(F.a == "rate"))
+async def review_rate(call: CallbackQuery, callback_data: Rev, state: FSMContext):
+    if not await db.can_review(call.from_user.id, callback_data.oid, callback_data.pid):
+        await call.answer("Отзыв можно оставить один раз на товар из доставленного заказа 👍", show_alert=True)
+        return
+    await call.answer()
+    await state.set_state(ReviewText.text)
+    await state.update_data(oid=callback_data.oid, pid=callback_data.pid, rating=max(1, min(5, callback_data.r)))
+    await call.message.edit_text(f"Ваша оценка: {stars(callback_data.r)}")
+    await call.message.answer("Напишите пару слов о товаре (вкус, качество, сколько хватает) — "
+                              "или нажмите «Пропустить»:", reply_markup=input_kb(skip=True))
+
+
+@router.message(ReviewText.text, F.text)
+async def review_text(message: Message, state: FSMContext, bot: Bot):
+    d = await state.get_data()
+    await state.clear()
+    uid = message.from_user.id
+    if not await db.can_review(uid, d["oid"], d["pid"]):
+        await message.answer("Отзыв уже сохранён 👍", reply_markup=main_menu(uid))
+        return
+    text = "" if message.text == BTN_SKIP else message.text.strip()[:1000]
+    rid = await db.add_review(d["pid"], uid, d["oid"], d["rating"], text)
+    await message.answer("🙏 Спасибо за отзыв!", reply_markup=main_menu(uid))
+    p = await db.product(d["pid"])
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🗑 Удалить отзыв", callback_data=Adm(a="rv_del", id=rid))
+    note = (f"⭐ <b>Новый отзыв</b> · {esc(p['name'])}\n{stars(d['rating'])} от {esc(message.from_user.full_name)}"
+            + (f"\n\n{esc(text)}" if text else ""))
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, note, reply_markup=kb.as_markup())
+        except Exception as e:
+            log.warning("Не удалось уведомить админа %s: %s", admin_id, e)
+
+
 @router.callback_query(Pick.filter())
 async def stale_pick(call: CallbackQuery):
     await call.answer("Эта кнопка устарела — начните оформление заново из корзины", show_alert=True)
 
 
-@router.message(StateFilter(Checkout))
+@router.message(StateFilter(Checkout, PromoInput, ReviewText))
 async def checkout_wrong_input(message: Message):
     await message.answer("Пожалуйста, ответьте текстом или выберите вариант кнопкой 👆")

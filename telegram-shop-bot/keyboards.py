@@ -59,6 +59,17 @@ class OrdSt(CallbackData, prefix="ost"):
     st: str
 
 
+class Rev(CallbackData, prefix="rev"):
+    a: str          # start | rate | list
+    oid: int = 0
+    pid: int = 0
+    r: int = 0
+
+
+class Wait(CallbackData, prefix="wait"):
+    fid: int
+
+
 class Adm(CallbackData, prefix="adm"):
     a: str
     id: int = 0
@@ -116,7 +127,7 @@ def products_kb(prods):
     return kb.as_markup()
 
 
-def product_kb(p, flavors):
+def product_kb(p, flavors, reviews_count: int = 0):
     kb = InlineKeyboardBuilder()
     if flavors:
         for f in flavors:
@@ -127,19 +138,22 @@ def product_kb(p, flavors):
     else:
         kb.button(text="🛒 Выбрать количество", callback_data=Qty(pid=p["id"], fid=0, qty=1))
         sizes = [1]
+    if reviews_count:
+        kb.button(text=f"💬 Отзывы ({reviews_count})", callback_data=Rev(a="list", pid=p["id"]))
+        sizes.append(1)
     kb.button(text="⬅️ К товарам", callback_data=Cat(id=p["category_id"]))
     kb.button(text="🛒 Корзина", callback_data=Nav(to="cart"))
     kb.adjust(*sizes, 2)
     return kb.as_markup()
 
 
-def qty_kb(pid: int, fid: int, qty: int, price: float):
+def qty_kb(pid: int, fid: int, qty: int, unit: float):
     kb = InlineKeyboardBuilder()
     kb.button(text="➖", callback_data=Qty(pid=pid, fid=fid, qty=max(1, qty - 1)))
     kb.button(text=str(qty), callback_data=Nav(to="noop"))
     kb.button(text="➕", callback_data=Qty(pid=pid, fid=fid, qty=min(99, qty + 1)))
     kb.button(text="➕5", callback_data=Qty(pid=pid, fid=fid, qty=min(99, qty + 5)))
-    kb.button(text=f"✅ В корзину — {money(price * qty)}", callback_data=Qty(pid=pid, fid=fid, qty=qty, add=1))
+    kb.button(text=f"✅ В корзину — {money(unit * qty)}", callback_data=Qty(pid=pid, fid=fid, qty=qty, add=1))
     kb.button(text="⬅️ Назад к товару", callback_data=Prod(id=pid))
     kb.adjust(4, 1, 1)
     return kb.as_markup()
@@ -153,14 +167,18 @@ def added_kb():
     return kb.as_markup()
 
 
-def cart_kb(items):
+def cart_kb(items, has_promo: bool):
     kb = InlineKeyboardBuilder()
     for it in items:
         label = f"{it['name']} {it['flavor']}".strip()
         kb.button(text=f"❌ {label}", callback_data=CartAct(action="del", pid=it["product_id"], fid=it["flavor_id"]))
+    if has_promo:
+        kb.button(text="🎟 Убрать промокод", callback_data=CartAct(action="promo_off"))
+    else:
+        kb.button(text="🎟 Ввести промокод", callback_data=CartAct(action="promo"))
     kb.button(text="🗑 Очистить", callback_data=CartAct(action="clear"))
     kb.button(text="✅ Оформить заказ", callback_data=CartAct(action="checkout"))
-    kb.adjust(*([1] * len(items)), 2)
+    kb.adjust(*([1] * len(items)), 1, 2)
     return kb.as_markup()
 
 
@@ -197,9 +215,11 @@ def admin_menu_kb():
     kb.button(text="📋 Товары", callback_data=Adm(a="prods"))
     kb.button(text="📂 Категории", callback_data=Adm(a="cats"))
     kb.button(text="📦 Активные заказы", callback_data=Adm(a="orders"))
+    kb.button(text="🎟 Промокоды", callback_data=Adm(a="promos"))
+    kb.button(text="⭐ Отзывы", callback_data=Adm(a="reviews"))
     kb.button(text="📊 Статистика", callback_data=Adm(a="stats"))
     kb.button(text="📣 Рассылка", callback_data=Adm(a="bc"))
-    kb.adjust(1, 2, 1, 2)
+    kb.adjust(1, 2, 1, 2, 2)
     return kb.as_markup()
 
 
@@ -212,10 +232,11 @@ def admin_product_kb(p):
     kb.button(text="🖼 Фото/видео", callback_data=Adm(a="e_media", id=pid))
     kb.button(text="➕ Вкусы", callback_data=Adm(a="e_flavors", id=pid))
     kb.button(text="🍬 Наличие вкусов", callback_data=Adm(a="flv", id=pid))
+    kb.button(text="📉 Оптовые цены", callback_data=Adm(a="e_tiers", id=pid))
     kb.button(text="🙈 Скрыть" if p["active"] else "👁 Показать", callback_data=Adm(a="toggle", id=pid))
     kb.button(text="🗑 Удалить", callback_data=Adm(a="del", id=pid))
     kb.button(text="⬅️ К товарам", callback_data=Adm(a="prods"))
-    kb.adjust(3, 3, 2, 1)
+    kb.adjust(3, 3, 1, 2, 1)
     return kb.as_markup()
 
 
@@ -226,4 +247,32 @@ def admin_flavors_kb(pid: int, flavors):
         kb.button(text="🗑", callback_data=Adm(a="fdel", id=f["id"], x=pid))
     kb.button(text="⬅️ К товару", callback_data=Adm(a="p", id=pid))
     kb.adjust(*([2] * len(flavors)), 1)
+    return kb.as_markup()
+
+
+def stars_kb(oid: int, pid: int):
+    kb = InlineKeyboardBuilder()
+    for r in range(5, 0, -1):
+        kb.button(text="⭐" * r, callback_data=Rev(a="rate", oid=oid, pid=pid, r=r))
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def review_products_kb(oid: int, products):
+    kb = InlineKeyboardBuilder()
+    for p in products:
+        kb.button(text=f"⭐ Оценить: {p['name']}", callback_data=Rev(a="start", oid=oid, pid=p["id"]))
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def wait_kb(fid: int):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔔 Сообщить, когда появится", callback_data=Wait(fid=fid))
+    return kb.as_markup()
+
+
+def product_link_kb(pid: int):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🛍 Открыть товар", callback_data=Prod(id=pid))
     return kb.as_markup()

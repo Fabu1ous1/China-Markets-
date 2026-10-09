@@ -38,11 +38,32 @@ def local_time(ts: str) -> str:
     return dt.strftime("%d.%m.%Y %H:%M")
 
 
-def product_text(p, flavors, admin: bool = False) -> str:
+def stars(n: float) -> str:
+    return "⭐" * int(round(n))
+
+
+def tiers_text(base: float, tiers) -> str:
+    if not tiers:
+        return ""
+    first = tiers[0]["min_qty"] - 1
+    span = "1 шт." if first == 1 else f"1–{first} шт."
+    lines = ["📉 <b>Чем больше — тем дешевле:</b>", f"• {span} — {money(base)}/шт."]
+    for t in tiers:
+        lines.append(f"• от {t['min_qty']} шт. — {money(t['price'])}/шт.")
+    lines.append("<i>Вкусы одной модели можно миксовать.</i>")
+    return "\n".join(lines)
+
+
+def product_text(p, flavors, tiers=(), rating=(0.0, 0), admin: bool = False) -> str:
     lines = [f"<b>{esc(p['name'])}</b>"]
+    avg, cnt = rating
+    if cnt:
+        lines.append(f"{stars(avg)} {avg:.1f} · {cnt} отзыв(ов)")
     if p["description"]:
         lines += ["", esc(p["description"])]
     lines += ["", f"💰 Цена: <b>{money(p['price'])}</b>"]
+    if tiers:
+        lines += ["", tiers_text(p["price"], tiers)]
     if flavors:
         if admin:
             lines.append("🍬 Вкусы: " + ", ".join(("✅" if f["in_stock"] else "❌") + esc(f["name"]) for f in flavors))
@@ -89,7 +110,11 @@ def order_text(o, items, admin: bool = False) -> str:
     count = 0
     for i, it in enumerate(items, 1):
         flavor = f" ({esc(it['flavor_name'])})" if it["flavor_name"] else ""
-        lines.append(f"{i}. {esc(it['product_name'])}{flavor} × {it['qty']} = {money(it['price'] * it['qty'])}")
+        lines.append(f"{i}. {esc(it['product_name'])}{flavor} × {it['qty']} по {money(it['price'])} = "
+                     f"{money(it['price'] * it['qty'])}")
         count += it["qty"]
-    lines += ["", f"📦 Всего штук: {count}", f"💰 <b>ИТОГО: {money(o['total'])}</b>"]
+    lines += ["", f"📦 Всего штук: {count}"]
+    if o["discount"]:
+        lines += [f"Сумма: {money(o['subtotal'])}", f"🎟 Промокод {esc(o['promo'])}: −{money(o['discount'])}"]
+    lines.append(f"💰 <b>ИТОГО: {money(o['total'])}</b>")
     return "\n".join(lines)
